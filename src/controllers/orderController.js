@@ -111,20 +111,6 @@ const createOrder = async (req, res) => {
 
       // No need to update billing usage for orders
 
-      // Emit real-time order update
-      const io = req.app.get('io');
-      if (io) {
-        io.to(restaurantSlug).emit('new-order', {
-          id: order._id,
-          orderNumber: order.orderNumber,
-          items: order.items,
-          totalAmount: order.totalAmount,
-          status: order.status,
-          customerName: order.customerName,
-          createdAt: order.createdAt
-        });
-      }
-
       res.status(201).json({
         message: 'Order created successfully',
         order: {

@@ -37,10 +37,6 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ error: 'Order not found' });
     }
 
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.to(restaurantSlug).emit('order-status-updated', order);
-
     res.json({ message: 'Order status updated successfully', order });
   } catch (error) {
     console.error('Update order status error:', error);
@@ -64,10 +60,6 @@ const setPriority = async (req, res) => {
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
-
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.to(restaurantSlug).emit('order-priority-updated', order);
 
     res.json({ message: 'Order priority updated successfully', order });
   } catch (error) {
