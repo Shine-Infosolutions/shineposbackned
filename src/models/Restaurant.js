@@ -16,7 +16,16 @@ const restaurantSchema = new mongoose.Schema({
   adminEmail: {
     type: String,
     required: true,
-    lowercase: true
+    lowercase: true,
+    unique: true
+  },
+  password: {
+    type: String,
+    required: true
+  },
+  slug: {
+    type: String,
+    unique: true
   },
   adminName: {
     type: String,
