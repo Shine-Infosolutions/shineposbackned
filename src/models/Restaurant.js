@@ -6,7 +6,14 @@ const restaurantSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  email: {
+  slug: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  adminEmail: {
     type: String,
     required: true,
     lowercase: true,
@@ -20,71 +27,28 @@ const restaurantSchema = new mongoose.Schema({
     type: String,
     unique: true
   },
-  phone: {
+  adminName: {
     type: String,
     required: true
   },
-  restaurantPhone: {
-    type: String,
-    required: true
-  },
-  pinCode: {
-    type: String,
-    required: true
-  },
-  city: {
-    type: String,
-    required: true
-  },
-  state: {
-    type: String,
-    required: true
-  },
-  address: {
-    type: String,
-    required: true
-  },
+  phone: String,
+  address: String,
+  city: String,
+  state: String,
+  zipCode: String,
+  cuisine: String,
+  description: String,
   subscriptionPlan: {
     type: String,
-    enum: ['trial', 'basic', 'premium'],
+    enum: ['trial', 'basic', 'premium', 'enterprise'],
     default: 'trial'
-  },
-  trialInfo: {
-    startDate: {
-      type: Date,
-      default: Date.now
-    },
-    endDate: {
-      type: Date,
-      default: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
-    },
-    isExpired: {
-      type: Boolean,
-      default: false
-    }
-  },
-  planLimits: {
-    maxItems: {
-      type: Number,
-      default: 50
-    },
-    maxOrders: {
-      type: Number,
-      default: 100
-    },
-    maxUsers: {
-      type: Number,
-      default: 2
-    }
   },
   isActive: {
     type: Boolean,
     default: true
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
   }
+}, {
+  timestamps: true
 });
 
 module.exports = mongoose.model('Restaurant', restaurantSchema);

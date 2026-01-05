@@ -6,10 +6,10 @@ const TenantModelFactory = require('../models/TenantModelFactory');
 // Initialize default plan configurations if they don't exist
 const initializePlanConfigs = async () => {
   const defaultPlans = [
-    { plan: 'trial', pricing: { monthly: 0, yearly: 0 }, limits: { orders: 5, storage: 500, users: 2 } },
-    { plan: 'basic', pricing: { monthly: 29, yearly: 290 }, limits: { orders: 500, storage: 2000, users: 5 } },
-    { plan: 'premium', pricing: { monthly: 79, yearly: 790 }, limits: { orders: 2000, storage: 10000, users: 15 } },
-    { plan: 'enterprise', pricing: { monthly: 199, yearly: 1990 }, limits: { orders: 10000, storage: 50000, users: 50 } }
+    { plan: 'trial', pricing: { monthly: 0, yearly: 0 } },
+    { plan: 'basic', pricing: { monthly: 29, yearly: 290 } },
+    { plan: 'premium', pricing: { monthly: 79, yearly: 790 } },
+    { plan: 'enterprise', pricing: { monthly: 199, yearly: 1990 } }
   ];
 
   for (const planData of defaultPlans) {
@@ -46,7 +46,6 @@ const createSubscription = async (req, res) => {
       plan,
       billing,
       price,
-      limits: planConfig.limits,
       status: plan === 'trial' ? 'trial' : 'active'
     });
     
@@ -84,14 +83,7 @@ const getRestaurantSubscription = async (req, res) => {
       return res.status(404).json({ error: 'Subscription not found' });
     }
     
-    // Calculate usage percentages
-    const usagePercentages = {
-      orders: (subscription.usage.orders / subscription.limits.orders) * 100,
-      storage: (subscription.usage.storage / subscription.limits.storage) * 100,
-      users: (subscription.usage.users / subscription.limits.users) * 100
-    };
-    
-    res.json({ subscription, usagePercentages });
+    res.json({ subscription });
   } catch (error) {
     console.error('Get restaurant subscription error:', error);
     res.status(500).json({ error: 'Failed to get subscription' });
@@ -117,10 +109,6 @@ const updateSubscription = async (req, res) => {
       
       subscription.plan = plan;
       subscription.price = planConfig.pricing[billing || subscription.billing];
-      // Only update limits from plan config if no custom limits provided
-      if (!limits) {
-        subscription.limits = planConfig.limits;
-      }
       
       // Reset usage if upgrading
       if (plan !== 'trial') {
@@ -137,7 +125,7 @@ const updateSubscription = async (req, res) => {
     
     // Update custom limits if provided
     if (limits) {
-      subscription.limits = { ...subscription.limits, ...limits };
+      // Limits are no longer used
     }
     
     await subscription.save();
@@ -222,20 +210,11 @@ const updateUsage = async (req, res) => {
     
     subscription.usage.lastReset = new Date();
     
-    // Check limits
-    const overLimits = {
-      orders: subscription.usage.orders > subscription.limits.orders,
-      storage: subscription.usage.storage > subscription.limits.storage,
-      users: subscription.usage.users > subscription.limits.users
-    };
-    
     await subscription.save();
     
     res.json({ 
       message: 'Usage updated successfully', 
-      usage: subscription.usage,
-      limits: subscription.limits,
-      overLimits
+      usage: subscription.usage
     });
   } catch (error) {
     console.error('Update usage error:', error);
@@ -375,19 +354,15 @@ const reactivateSubscription = async (req, res) => {
 const updateSubscriptionLimits = async (req, res) => {
   try {
     const { id } = req.params;
-    const { limits } = req.body;
     
     const subscription = await Subscription.findById(id);
     if (!subscription) {
       return res.status(404).json({ error: 'Subscription not found' });
     }
     
-    // Update limits
-    subscription.limits = { ...subscription.limits, ...limits };
-    await subscription.save();
     await subscription.populate('restaurantId', 'name slug');
     
-    res.json({ message: 'Subscription limits updated successfully', subscription });
+    res.json({ message: 'No limits to update - all plans have unlimited access', subscription });
   } catch (error) {
     console.error('Update subscription limits error:', error);
     res.status(500).json({ error: 'Failed to update subscription limits' });
@@ -397,11 +372,11 @@ const updateSubscriptionLimits = async (req, res) => {
 const updatePlanConfig = async (req, res) => {
   try {
     const { plan } = req.params;
-    const { pricing, limits } = req.body;
+    const { pricing } = req.body;
     
     const planConfig = await PlanConfig.findOneAndUpdate(
       { plan },
-      { pricing, limits },
+      { pricing },
       { new: true, upsert: true }
     );
     
@@ -462,7 +437,6 @@ const updateRestaurantPlan = async (req, res) => {
       
       subscription.plan = plan;
       subscription.price = planConfig.pricing.monthly;
-      subscription.limits = planConfig.limits;
       subscription.status = plan === 'trial' ? 'trial' : 'active';
       
       await subscription.save();
@@ -481,7 +455,6 @@ const updateRestaurantPlan = async (req, res) => {
         plan,
         billing: 'monthly',
         price: planConfig.pricing.monthly,
-        limits: planConfig.limits,
         status: plan === 'trial' ? 'trial' : 'active'
       });
       

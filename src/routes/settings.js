@@ -1,5 +1,5 @@
 const express = require('express');
-const { getSettings, updateSetting, deleteSetting, getPlanLimits, updatePlanLimits } = require('../controllers/settingsController');
+const { getSettings, updateSetting, deleteSetting } = require('../controllers/settingsController');
 const auth = require('../middleware/auth');
 
 const router = express.Router();
@@ -9,10 +9,6 @@ router.use(auth(['SUPER_ADMIN']));
 
 // Get all settings
 router.get('/', getSettings);
-
-// Plan limits management
-router.get('/plan-limits', getPlanLimits);
-router.put('/plan-limits', updatePlanLimits);
 
 // Update setting
 router.put('/', updateSetting);

@@ -48,11 +48,6 @@ const subscriptionSchema = new mongoose.Schema({
     users: { type: Number, default: 1 },
     lastReset: { type: Date, default: Date.now }
   },
-  limits: {
-    orders: { type: Number, default: 5 },
-    storage: { type: Number, default: 1000 }, // MB
-    users: { type: Number, default: 5 }
-  },
   paymentMethod: {
     type: String,
     cardLast4: String,

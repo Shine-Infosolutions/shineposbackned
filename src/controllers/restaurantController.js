@@ -12,61 +12,61 @@ const createRestaurant = async (req, res) => {
       return res.status(400).json({ error: errors.array()[0].msg });
     }
 
-    const { name, email, phone, restaurantPhone, pinCode, city, state, address, password, subscriptionPlan } = req.body;
+    const { name, slug, adminEmail, adminPassword, adminName, phone, address, city, state, zipCode, cuisine, description } = req.body;
     
     // Check if restaurant already exists
-    const existingRestaurant = await Restaurant.findOne({ email });
+    const existingRestaurant = await Restaurant.findOne({ 
+      $or: [{ adminEmail }, { slug }] 
+    });
     if (existingRestaurant) {
-      return res.status(400).json({ error: 'Restaurant with this email already exists' });
-    }
-
-    // Generate slug from restaurant name
-    const slug = name.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password || 'defaultPassword123', 10);
-
-    // Set plan limits based on subscription
-    let planLimits = { maxItems: 50, maxOrders: 100, maxUsers: 2 };
-    if (subscriptionPlan === 'basic') {
-      planLimits = { maxItems: 200, maxOrders: 500, maxUsers: 5 };
-    } else if (subscriptionPlan === 'premium') {
-      planLimits = { maxItems: 1000, maxOrders: 2000, maxUsers: 20 };
+      if (existingRestaurant.adminEmail === adminEmail) {
+        return res.status(400).json({ error: 'Restaurant with this email already exists' });
+      }
+      if (existingRestaurant.slug === slug) {
+        return res.status(400).json({ error: 'Restaurant slug already exists. Please choose a different slug.' });
+      }
     }
 
     // Create restaurant
     const restaurant = new Restaurant({ 
-      name, 
-      email, 
-      slug,
+      name,
+      slug: slug.toLowerCase().trim(),
+      adminEmail, 
+      adminName,
       phone,
-      restaurantPhone,
-      pinCode,
+      address,
       city,
       state,
-      address,
-      password: hashedPassword,
-      subscriptionPlan: subscriptionPlan || 'trial',
-      planLimits
+      zipCode,
+      cuisine,
+      description,
+      subscriptionPlan: 'trial'
     });
+    
     await restaurant.save();
+
+    // Create admin user for the restaurant
+    const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
+    const hashedPassword = await bcrypt.hash(adminPassword, 10);
+    
+    const adminUser = new UserModel({
+      name: adminName,
+      email: adminEmail,
+      password: hashedPassword,
+      role: 'RESTAURANT_ADMIN'
+    });
+    
+    await adminUser.save();
 
     res.status(201).json({
       message: 'Restaurant registered successfully',
       restaurant: {
         id: restaurant._id,
         name: restaurant.name,
-        email: restaurant.email,
         slug: restaurant.slug,
-        phone: restaurant.phone,
-        restaurantPhone: restaurant.restaurantPhone,
-        pinCode: restaurant.pinCode,
-        city: restaurant.city,
-        state: restaurant.state,
-        address: restaurant.address,
+        adminEmail: restaurant.adminEmail,
+        adminName: restaurant.adminName,
         subscriptionPlan: restaurant.subscriptionPlan,
-        planLimits: restaurant.planLimits,
-        trialInfo: restaurant.trialInfo,
         isActive: restaurant.isActive
       }
     });
@@ -134,11 +134,26 @@ const getRestaurantAnalytics = async (req, res) => {
 const updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name } = req.body;
+    const { name, slug } = req.body;
+    
+    // Check if slug is being updated and if it already exists
+    if (slug) {
+      const existingRestaurant = await Restaurant.findOne({ 
+        slug: slug.toLowerCase().trim(), 
+        _id: { $ne: id } 
+      });
+      if (existingRestaurant) {
+        return res.status(400).json({ error: 'Restaurant slug already exists. Please choose a different slug.' });
+      }
+    }
+    
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (slug) updateData.slug = slug.toLowerCase().trim();
     
     const restaurant = await Restaurant.findByIdAndUpdate(
       id, 
-      { name }, 
+      updateData, 
       { new: true }
     );
     

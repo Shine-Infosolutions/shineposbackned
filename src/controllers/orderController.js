@@ -1,7 +1,6 @@
 const { validationResult } = require('express-validator');
 const TenantModelFactory = require('../models/TenantModelFactory');
 const Restaurant = require('../models/Restaurant');
-const Settings = require('../models/Settings');
 
 const createOrder = async (req, res) => {
   try {
@@ -44,22 +43,6 @@ const createOrder = async (req, res) => {
       return res.status(403).json({ error: 'Restaurant is temporarily not accepting orders' });
     }
 
-    // Get dynamic order limit from settings
-    const orderLimitSetting = await Settings.findOne({ 
-      key: `PLAN_${restaurant.subscriptionPlan.toUpperCase()}_ORDERS` 
-    });
-    const orderLimit = orderLimitSetting?.value || (restaurant.subscriptionPlan === 'trial' ? 5 : 500);
-
-    // Check order limits
-    const OrderModel = req.tenantModels?.Order || TenantModelFactory.getOrderModel(restaurantSlug);
-    const currentOrderCount = await OrderModel.countDocuments();
-    
-    if (currentOrderCount >= orderLimit) {
-      return res.status(403).json({ 
-        error: `${restaurant.subscriptionPlan.charAt(0).toUpperCase() + restaurant.subscriptionPlan.slice(1)} accounts are limited to ${orderLimit} orders. Please upgrade to continue.`
-      });
-    }
-
     if (!items || items.length === 0) {
       return res.status(400).json({ error: 'Items are required' });
     }
@@ -99,6 +82,7 @@ const createOrder = async (req, res) => {
       // Generate order number
       const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 4).toUpperCase()}`;
 
+      const OrderModel = req.tenantModels?.Order || TenantModelFactory.getOrderModel(restaurantSlug);
       const order = new OrderModel({
         orderNumber,
         items: orderItems,
@@ -108,8 +92,6 @@ const createOrder = async (req, res) => {
       });
 
       await order.save();
-
-      // No need to update billing usage for orders
 
       res.status(201).json({
         message: 'Order created successfully',
