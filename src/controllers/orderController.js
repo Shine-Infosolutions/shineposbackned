@@ -1,7 +1,6 @@
 const { validationResult } = require('express-validator');
 const TenantModelFactory = require('../models/TenantModelFactory');
 const Restaurant = require('../models/Restaurant');
-const Settings = require('../models/Settings');
 
 const createOrder = async (req, res) => {
   try {
@@ -93,8 +92,6 @@ const createOrder = async (req, res) => {
       });
 
       await order.save();
-
-      // No need to update billing usage for orders
 
       res.status(201).json({
         message: 'Order created successfully',
