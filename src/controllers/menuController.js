@@ -1,35 +1,16 @@
 const createMenu = async (req, res) => {
   try {
-    // Check if restaurant is on trial and has reached limit
     const restaurantSlug = req.user.restaurantSlug;
-    const Restaurant = require('../models/Restaurant');
-    const Settings = require('../models/Settings');
+    const TimeBasedSubscriptionService = require('../services/TimeBasedSubscriptionService');
     
-    const restaurant = await Restaurant.findOne({ slug: restaurantSlug });
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurant not found' });
-    }
+    // Check if subscription is active (time-based)
+    await TimeBasedSubscriptionService.checkSubscriptionStatus(restaurantSlug);
     
     if (!req.tenantModels || !req.tenantModels.Menu) {
       return res.status(500).json({ error: 'Restaurant database not found' });
     }
     
     const MenuModel = req.tenantModels.Menu;
-    
-    // Get dynamic menu item limit from settings
-    const menuLimitSetting = await Settings.findOne({ 
-      key: `PLAN_${restaurant.subscriptionPlan.toUpperCase()}_MENU_ITEMS` 
-    });
-    const menuLimit = menuLimitSetting?.value || (restaurant.subscriptionPlan === 'trial' ? 5 : 50);
-    
-    // Check menu item limit
-    const menuCount = await MenuModel.countDocuments();
-    if (menuCount >= menuLimit) {
-      return res.status(403).json({ 
-        error: `${restaurant.subscriptionPlan.charAt(0).toUpperCase() + restaurant.subscriptionPlan.slice(1)} accounts are limited to ${menuLimit} menu items. Please upgrade to add more.` 
-      });
-    }
-
     const { name, description, price, category } = req.body;
 
     const menuItem = new MenuModel({
@@ -44,7 +25,7 @@ const createMenu = async (req, res) => {
     res.status(201).json({ message: 'Menu item created successfully', menuItem });
   } catch (error) {
     console.error('Create menu error:', error);
-    res.status(500).json({ error: 'Failed to create menu item', details: error.message });
+    res.status(500).json({ error: error.message || 'Failed to create menu item' });
   }
 };
 

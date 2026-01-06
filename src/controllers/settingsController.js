@@ -64,7 +64,7 @@ const initializeDefaultSettings = async () => {
     { key: 'APP_NAME', value: 'Restaurant SaaS', category: 'SYSTEM', description: 'Application name' },
     { key: 'MAINTENANCE_MODE', value: false, category: 'SYSTEM', description: 'Enable maintenance mode' },
     { key: 'MAX_RESTAURANTS', value: 1000, category: 'SYSTEM', description: 'Maximum number of restaurants' },
-    { key: 'TRIAL_DAYS', value: 30, category: 'SYSTEM', description: 'Trial period in days' },
+    { key: 'TRIAL_DAYS', value: 14, category: 'SYSTEM', description: 'Trial period in days' },
     { key: 'SMTP_HOST', value: '', category: 'EMAIL', description: 'SMTP server host' },
     { key: 'SMTP_PORT', value: 587, category: 'EMAIL', description: 'SMTP server port' },
     { key: 'SMTP_USER', value: '', category: 'EMAIL', description: 'SMTP username' },

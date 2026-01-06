@@ -55,38 +55,17 @@ const createUser = async (req, res) => {
   try {
     const { restaurantId, email, password, name, role, permissions, shift } = req.body;
     
-    console.log('Creating user with restaurantId:', restaurantId);
-    
     const restaurant = await Restaurant.findById(restaurantId);
     if (!restaurant) {
-      console.log('Restaurant not found for ID:', restaurantId);
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
-    console.log('Found restaurant:', restaurant.name, restaurant.slug);
-
-    // Get dynamic user limit from settings
-    const Settings = require('../models/Settings');
-    const userLimitSetting = await Settings.findOne({ 
-      key: `PLAN_${restaurant.subscriptionPlan.toUpperCase()}_USERS` 
-    });
-    const userLimit = userLimitSetting?.value || (restaurant.subscriptionPlan === 'trial' ? 2 : 5);
-    
-    const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
-    const currentUserCount = await UserModel.countDocuments();
-    
-    console.log('Current user count:', currentUserCount);
-    console.log('User limit:', userLimit);
-    console.log('Plan:', restaurant.subscriptionPlan);
-    
-    if (currentUserCount >= userLimit) {
-      console.log('User limit exceeded!');
-      return res.status(403).json({ 
-        error: `User limit exceeded. Your ${restaurant.subscriptionPlan} plan allows ${userLimit} users. Please upgrade your subscription.` 
-      });
-    }
+    // Check if subscription is active (time-based)
+    const TimeBasedSubscriptionService = require('../services/TimeBasedSubscriptionService');
+    await TimeBasedSubscriptionService.checkSubscriptionStatus(restaurant.slug);
 
     // Check if user already exists
+    const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
     const existingUser = await UserModel.findOne({ email });
     if (existingUser) {
       return res.status(400).json({ error: 'User with this email already exists' });
@@ -122,8 +101,7 @@ const createUser = async (req, res) => {
     });
   } catch (error) {
     console.error('Create user error:', error);
-    console.error('Error stack:', error.stack);
-    res.status(500).json({ error: 'Failed to create user: ' + error.message });
+    res.status(500).json({ error: error.message || 'Failed to create user' });
   }
 };
 
