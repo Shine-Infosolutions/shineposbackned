@@ -1,8 +1,8 @@
 const Subscription = require("../models/Subscription");
 const Restaurant = require("../models/Restaurant");
-/**
- * CREATE TRIAL (on restaurant signup)
- */
+
+//CREATE TRIAL (on restaurant signup)
+
 exports.createTrialSubscription = async (req, res) => {
   try {
     const { restaurantId } = req.body;

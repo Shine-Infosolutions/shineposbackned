@@ -38,7 +38,6 @@ const subscriptionSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-
 // ================= AUTO DATE & EXPIRY =================
 subscriptionSchema.pre("save", function (next) {
   // Set end date automatically
