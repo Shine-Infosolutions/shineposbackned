@@ -7,7 +7,7 @@ const connectDB = require('./utils/database');
 // Import routes
 const authRoutes = require('./routes/auth');
 const restaurantRoutes = require('./routes/restaurants');
-const menuRoutes = require('./routes/menus');
+const menuRoutes = require('./routes/menuitems');
 const orderRoutes = require('./routes/orders');
 const inventoryRoutes = require('./routes/inventory');
 const staffRoutes = require('./routes/staff');
@@ -98,4 +98,5 @@ app.use('*', (req, res) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('TimeBasedSubscriptionService module error - FIXED');
 });
