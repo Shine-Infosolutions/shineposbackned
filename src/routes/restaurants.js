@@ -6,7 +6,7 @@ const auth = require('../middleware/auth');
 const router = express.Router();
 
 // Create restaurant
-router.post('/', 
+router.post('/add/restaurant', 
   [
     body('name').trim().isLength({ min: 2 }).withMessage('Restaurant name is required'),
     body('adminName').trim().isLength({ min: 2 }).withMessage('Owner name is required'),
@@ -24,7 +24,7 @@ router.post('/',
 );
 
 // Get all restaurants (Super Admin only)
-router.get('/', auth(['SUPER_ADMIN']), getRestaurants);
+router.get('/all/auth', auth(['SUPER_ADMIN']), getRestaurants);
 
 // Get restaurant analytics (Super Admin only)
 router.get('/all/restaurant/analytics', auth(['SUPER_ADMIN']), getRestaurantAnalytics);
