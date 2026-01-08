@@ -7,7 +7,6 @@ const connectDB = require('./utils/database');
 // Import routes
 const authRoutes = require('./routes/auth');
 const restaurantRoutes = require('./routes/restaurants');
-const menuRoutes = require('./routes/menus');
 const orderRoutes = require('./routes/orders');
 const inventoryRoutes = require('./routes/inventory');
 const staffRoutes = require('./routes/staff');
@@ -19,6 +18,7 @@ const subscriptionStatusRoutes = require('./routes/subscription');
 const settingsRoutes = require('./routes/settings');
 const communicationRoutes = require('./routes/communication');
 const userManagementRoutes = require('./routes/userManagement');
+const menuItemsRoutes = require('./routes/menuItems');
 const paymentRoutes = require('./routes/payment');
 const categoryRoutes = require('./routes/category');
 const { trackApiMetrics } = require('./controllers/systemController');
@@ -47,7 +47,7 @@ app.use(trackApiMetrics); // Track API metrics for monitoring
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
-app.use('/api/menus', menuRoutes);
+app.use('/api/categories', categoryRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/kitchen', kitchenRoutes);
@@ -58,6 +58,7 @@ app.use('/api/subscription', subscriptionStatusRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/communication', communicationRoutes);
 app.use('/api/user-management', userManagementRoutes);
+app.use('/api/menu-items', menuItemsRoutes);
 // app.use('/api/payment', paymentRoutes);
 app.use('/api/:restaurantSlug/orders', (req, res, next) => {
   console.log('Hit parameterized route with slug:', req.params.restaurantSlug);

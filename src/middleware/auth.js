@@ -23,7 +23,11 @@ const auth = (requiredRoles = []) => {
         req.tenantModels = {
           User: TenantModelFactory.getUserModel(decoded.restaurantSlug),
           Menu: TenantModelFactory.getMenuModel(decoded.restaurantSlug),
-          Order: TenantModelFactory.getOrderModel(decoded.restaurantSlug)
+          Order: TenantModelFactory.getOrderModel(decoded.restaurantSlug),
+          Inventory: TenantModelFactory.getInventoryModel(decoded.restaurantSlug),
+          Staff: TenantModelFactory.getStaffModel(decoded.restaurantSlug),
+          Category: TenantModelFactory.getCategoryModel(decoded.restaurantSlug),
+          MenuItem: TenantModelFactory.getMenuItemModel(decoded.restaurantSlug)
         };
       }
 
