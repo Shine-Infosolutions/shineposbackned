@@ -8,6 +8,8 @@ const connectDB = require('./utils/database');
 const authRoutes = require('./routes/auth');
 const restaurantRoutes = require('./routes/restaurants');
 const menuRoutes = require('./routes/menuItems');
+console.log('menuRoutes type:', typeof menuRoutes);
+console.log('menuRoutes:', menuRoutes);
 const orderRoutes = require('./routes/orders');
 const inventoryRoutes = require('./routes/inventory');
 const staffRoutes = require('./routes/staff');
@@ -21,7 +23,8 @@ const communicationRoutes = require('./routes/communication');
 const userManagementRoutes = require('./routes/userManagement');
 const paymentRoutes = require('./routes/payment');
 const categoryRoutes = require('./routes/category');
-const { trackApiMetrics } = require('./controllers/systemController');
+const systemController = require('./controllers/systemController');
+const { trackApiMetrics } = systemController;
 
 const app = express();
 
@@ -46,7 +49,7 @@ app.use(trackApiMetrics); // Track API metrics for monitoring
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
-app.use('/api/menus', menuRoutes);
+// app.use('/api/menus', menuRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/staff', staffRoutes);
 app.use('/api/kitchen', kitchenRoutes);
@@ -71,13 +74,11 @@ app.use('/api/orders', (req, res, next) => {
 // Root route
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });
-});
-
+})
 // Health check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Restaurant SaaS API is running' });
 });
-
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
