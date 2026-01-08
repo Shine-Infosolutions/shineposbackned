@@ -23,6 +23,6 @@ router.use(auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER']));
 router.get('/', getOrders);
 
 // Update order status
-router.put('/:id/status', updateOrderStatus);
+router.patch('/:id/status', updateOrderStatus);
 
 module.exports = router;

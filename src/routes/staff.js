@@ -34,7 +34,7 @@ router.post('/',
 router.put('/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), tenantMiddleware, updateStaff);
 
 // Schedule shift
-router.post('/:id/shift', 
+router.post('/:id/shifts', 
   auth(['RESTAURANT_ADMIN', 'MANAGER']), 
   tenantMiddleware,
   [

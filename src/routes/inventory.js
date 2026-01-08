@@ -13,7 +13,7 @@ const tenantMiddleware = require('../middleware/tenant');
 const router = express.Router();
 
 // Get all inventory items
-router.get('/', auth(['RESTAURANT_ADMIN', 'STAFF']), tenantMiddleware, getInventory);
+router.get('/all', auth(['RESTAURANT_ADMIN', 'STAFF']), tenantMiddleware, getInventory);
 
 // Get low stock items
 router.get('/low-stock', auth(['RESTAURANT_ADMIN', 'STAFF']), tenantMiddleware, getLowStockItems);

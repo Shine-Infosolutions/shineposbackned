@@ -12,10 +12,10 @@ router.use(auth(['SUPER_ADMIN']));
 router.get('/', getAllUsers);
 
 // Get users for specific restaurant
-router.get('/restaurant/:restaurantId', getRestaurantUsers);
+router.get('/restaurants/:restaurantId/users', getRestaurantUsers);
 
 // Create user for restaurant
-router.post('/restaurant/:restaurantId', [
+router.post('/restaurants/:restaurantId/users', [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
   body('name').trim().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'),
@@ -23,9 +23,9 @@ router.post('/restaurant/:restaurantId', [
 ], createUser);
 
 // Update user
-router.put('/restaurant/:restaurantId/user/:userId', updateUser);
+router.put('/restaurants/:restaurantId/users/:userId', updateUser);
 
 // Delete user
-router.delete('/restaurant/:restaurantId/user/:userId', deleteUser);
+router.delete('/restaurants/:restaurantId/users/:userId', deleteUser);
 
 module.exports = router;

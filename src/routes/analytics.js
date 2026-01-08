@@ -8,6 +8,6 @@ const router = express.Router();
 router.get('/advanced', auth(['SUPER_ADMIN']), getAdvancedAnalytics);
 
 // Export reports
-router.get('/export', auth(['SUPER_ADMIN']), exportReport);
+router.post('/reports/export', auth(['SUPER_ADMIN']), exportReport);
 
 module.exports = router;

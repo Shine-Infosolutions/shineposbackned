@@ -8,7 +8,7 @@ const router = express.Router();
 router.use(auth(['SUPER_ADMIN']));
 
 // Get all settings
-router.get('/', getSettings);
+router.get('/all', getSettings);
 
 // Update setting
 router.put('/', updateSetting);

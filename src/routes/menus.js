@@ -21,7 +21,7 @@ router.post('/',
 );
 
 // Get all menu items
-router.get('/', getMenus);
+router.get('/all', getMenus);
 
 // Update menu item
 router.put('/:id', updateMenu);
