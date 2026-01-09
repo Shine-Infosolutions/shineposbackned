@@ -180,7 +180,24 @@ const createAddonSchema = () => new mongoose.Schema({
   }
 });
 
-// Staff Schema for tenant-specific collections
+// Variation Schema for tenant-specific collections
+const createVariationSchema = () => new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  price: {
+    type: Number,
+    required: true
+  },
+  available: {
+    type: Boolean,
+    default: true
+  }
+}, {
+  timestamps: true
+});
 const createStaffSchema = () => new mongoose.Schema({
   email: {
     type: String,
@@ -336,6 +353,15 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getVariationModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_variations`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('variations', createVariationSchema()));
+    }
+    return this.models.get(modelKey);
+  }
+
   async createTenantDatabase(restaurantSlug) {
     // Initialize models to create database and collections
     this.getUserModel(restaurantSlug);
@@ -346,6 +372,7 @@ class TenantModelFactory {
     this.getCategoryModel(restaurantSlug);
     this.getMenuItemModel(restaurantSlug);
     this.getAddonModel(restaurantSlug);
+    this.getVariationModel(restaurantSlug);
   }
 }
 
