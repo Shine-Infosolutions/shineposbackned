@@ -7,7 +7,7 @@ const createMenuItem = async (req, res) => {
             return res.status(500).json({ error: 'Tenant models not initialized' });
         }
         
-        const { itemName, categoryID, status, imageUrl, videoUrl, timeToPrepare, foodType, price, addon } = req.body;
+        const { itemName, categoryID, status, imageUrl, videoUrl, timeToPrepare, foodType, addon, variation } = req.body;
         const MenuItem = req.tenantModels.MenuItem;
         
         const menuItem = new MenuItem({
@@ -18,8 +18,8 @@ const createMenuItem = async (req, res) => {
             videoUrl,
             timeToPrepare,
             foodType,
-            price,
-            addon
+            addon,
+            variation
         });
         
         await menuItem.save();
@@ -33,7 +33,7 @@ const createMenuItem = async (req, res) => {
 const getMenuItems = async (req, res) => {
     try {
         const MenuItem = req.tenantModels.MenuItem;
-        const menuItems = await MenuItem.find().populate('categoryID').populate('addon').sort({ createdAt: -1 });
+        const menuItems = await MenuItem.find().populate('categoryID').populate('addon').populate('variation').sort({ createdAt: -1 });
         res.json({ menuItems });
     } catch (error) {
         console.error('Get menu items error:', error);
@@ -46,7 +46,7 @@ const getMenuItemById = async (req, res) => {
         const { id } = req.params;
         const MenuItem = req.tenantModels.MenuItem;
         
-        const menuItem = await MenuItem.findById(id).populate('categoryID').populate('addon');
+        const menuItem = await MenuItem.findById(id).populate('categoryID').populate('addon').populate('variation');
         if (!menuItem) {
             return res.status(404).json({ error: 'Menu item not found' });
         }
@@ -63,7 +63,7 @@ const updateMenuItem = async (req, res) => {
         const { id } = req.params;
         const MenuItem = req.tenantModels.MenuItem;
         
-        const menuItem = await MenuItem.findByIdAndUpdate(id, req.body, { new: true }).populate('categoryID').populate('addon');
+        const menuItem = await MenuItem.findByIdAndUpdate(id, req.body, { new: true }).populate('categoryID').populate('addon').populate('variation');
         if (!menuItem) {
             return res.status(404).json({ error: 'Menu item not found' });
         }
