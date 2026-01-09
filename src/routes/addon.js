@@ -28,7 +28,7 @@ router.post(
 router.get('/all/addon', auth(['RESTAURANT_ADMIN']), tenantMiddleware, getAddons);
 
 // Get addon by ID
-router.get('/addon/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, getAddonById);
+router.get('/get/addon/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, getAddonById);
 
 // Update addon
 router.put('/update/addon/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, updateAddon);
