@@ -271,6 +271,24 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getMenuItemModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_menuitems`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      const menuItemSchema = new mongoose.Schema({
+        itemName: { type: String, required: true, trim: true },
+        categoryID: { type: mongoose.Schema.Types.ObjectId, ref: 'categories', required: true },
+        status: { type: String, enum: ['active', 'inactive', 'out-of-stock'], default: 'active' },
+        imageUrl: { type: String, trim: true },
+        videoUrl: { type: String, trim: true },
+        timeToPrepare: { type: Number, required: true, min: 1 },
+        foodType: { type: String, enum: ['veg', 'nonveg'], required: true }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('menuitems', menuItemSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getStaffModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_staff`;
     if (!this.models.has(modelKey)) {
@@ -287,6 +305,8 @@ class TenantModelFactory {
     this.getOrderModel(restaurantSlug);
     this.getInventoryModel(restaurantSlug);
     this.getStaffModel(restaurantSlug);
+    this.getCategoryModel(restaurantSlug);
+    this.getMenuItemModel(restaurantSlug);
   }
 }
 
