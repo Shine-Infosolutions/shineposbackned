@@ -25,7 +25,7 @@ router.post('/add/staff',
     body('email').isEmail().withMessage('Valid email is required'),
     body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
     body('name').trim().isLength({ min: 1 }).withMessage('Name is required'),
-    body('role').isIn(['RESTAURANT_ADMIN', 'MANAGER', 'CASHIER', 'KITCHEN_STAFF']).withMessage('Valid role is required')
+    body('role').isIn(['MANAGER', 'CHEF', 'WAITER', 'CASHIER']).withMessage('Valid role is required')
   ],
   createStaff
 );
