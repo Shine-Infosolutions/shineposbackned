@@ -62,28 +62,46 @@ const login = async (req, res) => {
     let user, role, tokenPayload;
 
     if (restaurantSlug) {
-      // Restaurant admin login - check Restaurant model directly
+      // First try Restaurant admin login
       const restaurant = await Restaurant.findOne({ 
         slug: restaurantSlug, 
         email: email,
         isActive: true 
       });
       
-      if (!restaurant || !await bcrypt.compare(password, restaurant.password)) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+      if (restaurant && await bcrypt.compare(password, restaurant.password)) {
+        tokenPayload = {
+          userId: restaurant._id,
+          role: 'RESTAURANT_ADMIN',
+          restaurantSlug: restaurantSlug
+        };
+        
+        user = {
+          _id: restaurant._id,
+          email: restaurant.email,
+          name: restaurant.ownerName
+        };
+      } else {
+        // Try staff login in tenant database
+        const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+        const staff = await StaffModel.findOne({ email, isActive: true });
+        
+        if (staff && await bcrypt.compare(password, staff.password)) {
+          tokenPayload = {
+            userId: staff._id,
+            role: staff.role,
+            restaurantSlug: restaurantSlug
+          };
+          
+          user = {
+            _id: staff._id,
+            email: staff.email,
+            name: staff.name
+          };
+        } else {
+          return res.status(401).json({ error: 'Invalid credentials' });
+        }
       }
-
-      tokenPayload = {
-        userId: restaurant._id,
-        role: 'RESTAURANT_ADMIN',
-        restaurantSlug: restaurantSlug
-      };
-      
-      user = {
-        _id: restaurant._id,
-        email: restaurant.email,
-        name: restaurant.ownerName
-      };
     } else {
       // Try Super admin login first
       user = await SuperAdmin.findOne({ email, isActive: true });
@@ -97,15 +115,47 @@ const login = async (req, res) => {
         // Try Restaurant login
         user = await Restaurant.findOne({ email, isActive: true });
         
-        if (!user || !await bcrypt.compare(password, user.password)) {
-          return res.status(401).json({ error: 'Invalid credentials' });
+        if (user && await bcrypt.compare(password, user.password)) {
+          tokenPayload = {
+            userId: user._id,
+            role: 'RESTAURANT_ADMIN',
+            restaurantSlug: user.slug
+          };
+        } else {
+          // Try staff login across all restaurants
+          const restaurants = await Restaurant.find({ isActive: true });
+          let staffFound = false;
+          
+          for (const restaurant of restaurants) {
+            try {
+              const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
+              const staff = await StaffModel.findOne({ email, isActive: true });
+              
+              if (staff && await bcrypt.compare(password, staff.password)) {
+                tokenPayload = {
+                  userId: staff._id,
+                  role: staff.role,
+                  restaurantSlug: restaurant.slug
+                };
+                
+                user = {
+                  _id: staff._id,
+                  email: staff.email,
+                  name: staff.name
+                };
+                
+                staffFound = true;
+                break;
+              }
+            } catch (error) {
+              continue;
+            }
+          }
+          
+          if (!staffFound) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+          }
         }
-
-        tokenPayload = {
-          userId: user._id,
-          role: 'RESTAURANT_ADMIN',
-          restaurantSlug: user.slug
-        };
       }
     }
 
