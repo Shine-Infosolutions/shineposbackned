@@ -30,12 +30,12 @@ router.get('/all/restaurant', auth(['SUPER_ADMIN']), getRestaurants);
 router.get('/all/restaurant/analytics', auth(['SUPER_ADMIN']), getRestaurantAnalytics);
 
 // Update restaurant (Super Admin only)
-router.put('/update/restaurant/:id', auth(['SUPER_ADMIN']), updateRestaurant);
+router.put('/update/:id', auth(['SUPER_ADMIN']), updateRestaurant);
 
 // Delete restaurant (Super Admin only)
-router.delete('/delete/restaurant/:id', auth(['SUPER_ADMIN']), deleteRestaurant);
+router.delete('/delete/:id', auth(['SUPER_ADMIN']), deleteRestaurant);
 
 // Toggle restaurant status (Super Admin only)
-router.patch('/update/toggle-status/:id', auth(['SUPER_ADMIN']), toggleRestaurantStatus);
+router.patch('/:id/toggle-status', auth(['SUPER_ADMIN']), toggleRestaurantStatus);
 
 module.exports = router;

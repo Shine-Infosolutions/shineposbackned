@@ -63,9 +63,8 @@ app.use('/api/user-management', userManagementRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/addon', addonRoutes);
 app.use('/api/variation', variationRoutes);
-// app.use('/api/payment', paymentRoutes);
-app.use('/api/:restaurantSlug/orders', orderRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/:restaurantSlug/orders', orderRoutes);
 
 // Root route
 app.get('/', (req, res) => {
