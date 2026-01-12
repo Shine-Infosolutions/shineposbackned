@@ -104,4 +104,104 @@ router.patch(
   processPayment
 );
 
+/* =====================================================
+   GET KOT DATA
+===================================================== */
+router.get(
+  "/kot/:id",
+  [
+    param("id")
+      .isMongoId()
+      .withMessage("Invalid order ID"),
+  ],
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      
+      const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+      const Restaurant = require("../models/Restaurant");
+      
+      const order = await OrderModel.findById(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+      
+      const kotData = {
+        restaurantName: restaurant?.name || 'Restaurant',
+        restaurantSlug: req.user.restaurantSlug,
+        orderNumber: order.orderNumber,
+        tableNumber: order.tableNumber,
+        customerName: order.customerName,
+        items: order.items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          category: item.category,
+          variation: item.variation,
+          addons: item.addons || [],
+          notes: item.notes
+        })),
+        createdAt: order.createdAt,
+        status: order.status
+      };
+      
+      res.json({ kot: kotData });
+    } catch (error) {
+      console.error("Get KOT error:", error);
+      res.status(500).json({ error: "Failed to get KOT data" });
+    }
+  }
+);
+
+/* =====================================================
+   PRINT KOT
+===================================================== */
+router.post(
+  "/print-kot/:id",
+  [
+    param("id")
+      .isMongoId()
+      .withMessage("Invalid order ID"),
+  ],
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const kotPrinter = require("../utils/kotPrinter");
+      
+      const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+      const Restaurant = require("../models/Restaurant");
+      
+      const order = await OrderModel.findById(id);
+      if (!order) {
+        return res.status(404).json({ error: "Order not found" });
+      }
+      
+      const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+      
+      const kotData = {
+        restaurantName: restaurant?.name || 'Restaurant',
+        orderNumber: order.orderNumber,
+        items: order.items.map(item => ({
+          name: item.name,
+          quantity: item.quantity,
+          addons: item.addons || []
+        })),
+        createdAt: order.createdAt
+      };
+      
+      const result = await kotPrinter.printKOT(kotData);
+      
+      if (result.success) {
+        res.json({ message: "KOT printed successfully" });
+      } else {
+        res.status(500).json({ error: "Failed to print KOT", details: result.error });
+      }
+    } catch (error) {
+      console.error("Print KOT error:", error);
+      res.status(500).json({ error: "Failed to print KOT" });
+    }
+  }
+);
+
 module.exports = router;

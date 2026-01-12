@@ -1,0 +1,40 @@
+{
+  "stations": {
+    "curry": {
+      "interface": "tcp://192.168.1.100:9100",
+      "enabled": true,
+      "categories": [
+        "curry",
+        "rice",
+        "dal"
+      ]
+    },
+    "tandoor": {
+      "interface": "tcp://192.168.1.101:9100",
+      "enabled": true,
+      "categories": [
+        "tandoor",
+        "naan",
+        "roti",
+        "kebab"
+      ]
+    },
+    "bar": {
+      "interface": "tcp://192.168.1.102:9100",
+      "enabled": true,
+      "categories": [
+        "beverage",
+        "drink",
+        "juice",
+        "cocktail"
+      ]
+    },
+    "main": {
+      "interface": "usb",
+      "enabled": true,
+      "categories": [
+        "default"
+      ]
+    }
+  }
+}

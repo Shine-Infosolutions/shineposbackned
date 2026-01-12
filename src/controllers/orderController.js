@@ -1,6 +1,7 @@
 const { validationResult } = require("express-validator");
 const TenantModelFactory = require("../models/TenantModelFactory");
 const Restaurant = require("../models/Restaurant");
+const kotPrinter = require("../utils/kotPrinter");
 
 /* =====================================================
    CREATE ORDER
@@ -138,6 +139,22 @@ const createOrder = async (req, res) => {
     });
 
     await order.save();
+
+    // Print KOT silently
+    const kotData = {
+      restaurantName: restaurant.name,
+      orderNumber: order.orderNumber,
+      items: orderItems.map(item => ({
+        name: item.name,
+        quantity: item.quantity,
+        addons: item.addons || []
+      })),
+      createdAt: order.createdAt
+    };
+    
+    kotPrinter.printKOT(kotData).catch(err => 
+      console.error('KOT print failed:', err)
+    );
 
     res.status(201).json({
       message: "Order created successfully",
