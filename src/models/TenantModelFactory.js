@@ -18,7 +18,7 @@ const createUserSchema = () => new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER'],
+    enum: ['MANAGER', 'CHEF', 'WAITER', 'CASHIER'],
     required: true
   },
   permissions: [{
@@ -222,7 +222,7 @@ const createStaffSchema = () => new mongoose.Schema({
   },
   role: {
     type: String,
-    enum: ['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER'],
+    enum: ['MANAGER', 'CHEF', 'WAITER', 'CASHIER'],
     required: true
   },
   permissions: [{

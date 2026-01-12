@@ -6,7 +6,17 @@ const createStaff = async (req, res) => {
     const { email, password, name, role, permissions, phone, hourlyRate } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     
+    if (!restaurantSlug) {
+      return res.status(400).json({ error: 'Restaurant slug is required' });
+    }
+    
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    
+    // Check if staff with email already exists
+    const existingStaff = await StaffModel.findOne({ email });
+    if (existingStaff) {
+      return res.status(400).json({ error: 'Staff member with this email already exists' });
+    }
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
@@ -26,7 +36,9 @@ const createStaff = async (req, res) => {
     res.status(201).json({ message: 'Staff member created successfully', staff: staffData });
   } catch (error) {
     console.error('Create staff error:', error);
-    res.status(500).json({ error: 'Failed to create staff member' });
+    console.error('Error stack:', error.stack);
+    console.error('Error message:', error.message);
+    res.status(500).json({ error: 'Failed to create staff member', details: error.message });
   }
 };
 
