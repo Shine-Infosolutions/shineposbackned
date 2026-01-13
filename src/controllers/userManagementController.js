@@ -9,13 +9,40 @@ const getAllUsers = async (req, res) => {
 
     for (const restaurant of restaurants) {
       try {
+        // Add restaurant admin from restaurant collection
+        allUsers.push({
+          _id: restaurant._id + '_admin',
+          name: restaurant.ownerName,
+          email: restaurant.email,
+          role: 'RESTAURANT_ADMIN',
+          isActive: restaurant.isActive,
+          restaurantName: restaurant.restaurantName || restaurant.name,
+          restaurantSlug: restaurant.slug,
+          restaurantId: restaurant._id,
+          createdAt: restaurant.createdAt
+        });
+
+        // Fetch from users collection
         const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
         const users = await UserModel.find().select('-password');
         
         users.forEach(user => {
           allUsers.push({
             ...user.toObject(),
-            restaurantName: restaurant.name,
+            restaurantName: restaurant.restaurantName || restaurant.name,
+            restaurantSlug: restaurant.slug,
+            restaurantId: restaurant._id
+          });
+        });
+
+        // Also fetch from staff collection
+        const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
+        const staff = await StaffModel.find().select('-password');
+        
+        staff.forEach(staffMember => {
+          allUsers.push({
+            ...staffMember.toObject(),
+            restaurantName: restaurant.restaurantName || restaurant.name,
             restaurantSlug: restaurant.slug,
             restaurantId: restaurant._id
           });
@@ -115,12 +142,23 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
+    // Try to find and update in users collection first
     const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
-    const user = await UserModel.findByIdAndUpdate(
+    let user = await UserModel.findByIdAndUpdate(
       userId,
       { name, role, isActive, permissions, shift },
       { new: true }
     ).select('-password');
+
+    // If not found in users, try staff collection
+    if (!user) {
+      const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
+      user = await StaffModel.findByIdAndUpdate(
+        userId,
+        { name, role, isActive, permissions, shift },
+        { new: true }
+      ).select('-password');
+    }
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
