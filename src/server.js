@@ -1,8 +1,11 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
 
 const connectDB = require('./utils/database');
+// Auto-save middleware
+require('./middleware/autoSave');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -23,6 +26,7 @@ const paymentRoutes = require('./routes/payment');
 const categoryRoutes = require('./routes/category');
 const addonRoutes = require('./routes/addon');
 const variationRoutes = require('./routes/variation');
+const activityLogRoutes = require('./routes/activityLog');
 const kotRoutes = require('./routes/kot');
 const systemController = require('./controllers/systemController');
 const { trackApiMetrics } = systemController;
@@ -65,6 +69,7 @@ app.use('/api/user-management', userManagementRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/addon', addonRoutes);
 app.use('/api/variation', variationRoutes);
+app.use('/api/activity', activityLogRoutes);
 app.use('/api/kot', kotRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/:restaurantSlug/orders', orderRoutes);

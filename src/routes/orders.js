@@ -1,5 +1,6 @@
 const express = require("express");
 const { body, param } = require("express-validator");
+const { activityLogger } = require('../middleware/activityLogger');
 const {
   getOrders,
   createOrder,
@@ -16,6 +17,7 @@ const router = express.Router();
 router.post(
   "/add/staff",
   auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  activityLogger('Order'),
   [
     body("items")
       .isArray({ min: 1 })
@@ -52,13 +54,14 @@ router.use(
 /* =====================================================
    GET ALL ORDERS
 ===================================================== */
-router.get("/all/orders", getOrders);
+router.get("/all/orders", activityLogger('Order'), getOrders);
 
 /* =====================================================
    UPDATE ORDER STATUS
 ===================================================== */
 router.patch(
   "/update/status/:id",
+  activityLogger('Order'),
   [
     param("id")
       .isMongoId()
@@ -84,6 +87,7 @@ router.patch(
 ===================================================== */
 router.patch(
   "/payment/:id",
+  activityLogger('Payment'),
   [
     param("id")
       .isMongoId()

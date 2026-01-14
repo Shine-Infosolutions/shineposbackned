@@ -2,6 +2,7 @@ const express = require('express');
 const { body } = require('express-validator');
 const auth = require('../middleware/auth');
 const tenantMiddleware = require('../middleware/tenant');
+const { activityLogger } = require('../middleware/activityLogger');
 const {
     createCategory,
     getCategories,
@@ -11,24 +12,11 @@ const {
 
 const router = express.Router();
 
-// Create Category
-router.post(
-    '/add/category',
-    auth(['RESTAURANT_ADMIN']),
-    tenantMiddleware,
-    [
-        body('name').trim().notEmpty().withMessage('Category name is required')
-    ],
-    createCategory
-);
-
-// Get all categories
-router.get('/all/category', auth(['RESTAURANT_ADMIN']), tenantMiddleware, getCategories);
-
-// Update category
-router.put('/update/category/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, updateCategory);
-
-// Delete category
-router.delete('/delete/category/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, deleteCategory);
+router.post('/add/category', auth(['RESTAURANT_ADMIN']), tenantMiddleware, activityLogger('Category'), [
+    body('name').trim().notEmpty().withMessage('Category name is required')
+], createCategory);
+router.get('/all/category', auth(['RESTAURANT_ADMIN']), tenantMiddleware, activityLogger('Category'), getCategories);
+router.put('/update/category/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, activityLogger('Category'), updateCategory);
+router.delete('/delete/category/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, activityLogger('Category'), deleteCategory);
 
 module.exports = router;
