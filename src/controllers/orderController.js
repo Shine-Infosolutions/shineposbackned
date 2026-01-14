@@ -138,7 +138,32 @@ const createOrder = async (req, res) => {
       customerPhone: customerPhone || "",
     });
 
-    await order.save();
+    const savedOrder = await order.save();
+    console.log('Order saved successfully:', savedOrder.orderNumber, 'Status:', savedOrder.status);
+
+    // Auto-create KOT when order is created
+    try {
+      const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
+      console.log('Creating KOT for order:', savedOrder.orderNumber);
+      
+      const kot = new KOTModel({
+        orderId: savedOrder._id,
+        orderNumber: savedOrder.orderNumber,
+        items: orderItems.map(item => ({
+          menuId: item.menuId,
+          name: item.name,
+          quantity: item.quantity,
+          variation: item.variation,
+          addons: item.addons
+        })),
+        customerName: savedOrder.customerName
+      });
+      
+      const savedKOT = await kot.save();
+      console.log('KOT created successfully:', savedKOT.kotNumber);
+    } catch (kotError) {
+      console.error('KOT creation error:', kotError);
+    }
 
     // Print KOT silently
     const kotData = {
@@ -158,7 +183,7 @@ const createOrder = async (req, res) => {
 
     res.status(201).json({
       message: "Order created successfully",
-      order,
+      order: savedOrder,
     });
   } catch (error) {
     console.error("Create order error:", error);

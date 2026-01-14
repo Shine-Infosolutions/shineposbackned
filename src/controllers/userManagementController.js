@@ -180,8 +180,15 @@ const deleteUser = async (req, res) => {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
+    // Try to delete from users collection first
     const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
-    const user = await UserModel.findByIdAndDelete(userId);
+    let user = await UserModel.findByIdAndDelete(userId);
+
+    // If not found in users, try staff collection
+    if (!user) {
+      const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
+      user = await StaffModel.findByIdAndDelete(userId);
+    }
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });

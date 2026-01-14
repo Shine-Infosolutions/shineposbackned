@@ -258,65 +258,77 @@ const createStaffSchema = () => new mongoose.Schema({
 });
 
 // KOT Schema for tenant-specific collections
-const createKOTSchema = () => new mongoose.Schema({
-  kotNumber: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  orderId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  orderNumber: {
-    type: String,
-    required: true
-  },
-  items: [{
-    menuId: {
+const createKOTSchema = () => {
+  const schema = new mongoose.Schema({
+    kotNumber: {
+      type: String,
+      unique: true
+    },
+    orderId: {
       type: mongoose.Schema.Types.ObjectId,
       required: true
     },
-    name: {
+    orderNumber: {
       type: String,
       required: true
     },
-    quantity: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    variation: {
-      name: String,
-      price: Number
-    },
-    addons: [{
-      name: String,
-      price: Number
+    items: [{
+      menuId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
+      },
+      name: {
+        type: String,
+        required: true
+      },
+      quantity: {
+        type: Number,
+        required: true,
+        min: 1
+      },
+      variation: {
+        name: String,
+        price: Number
+      },
+      addons: [{
+        name: String,
+        price: Number
+      }],
+      specialInstructions: String
     }],
-    specialInstructions: String
-  }],
-  status: {
-    type: String,
-    enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
-    default: 'PENDING'
-  },
-  priority: {
-    type: String,
-    enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
-    default: 'NORMAL'
-  },
-  tableNumber: String,
-  customerName: String,
-  printedAt: Date,
-  startedAt: Date,
-  completedAt: Date,
-  estimatedTime: Number,
-  actualTime: Number,
-  notes: String
-}, {
-  timestamps: true
-});
+    status: {
+      type: String,
+      enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+      default: 'PENDING'
+    },
+    priority: {
+      type: String,
+      enum: ['LOW', 'NORMAL', 'HIGH', 'URGENT'],
+      default: 'NORMAL'
+    },
+    tableNumber: String,
+    customerName: String,
+    printedAt: Date,
+    startedAt: Date,
+    completedAt: Date,
+    estimatedTime: Number,
+    actualTime: Number,
+    notes: String
+  }, {
+    timestamps: true
+  });
+  
+  // Generate KOT number before saving
+  schema.pre('save', async function(next) {
+    if (!this.kotNumber) {
+      const count = await this.constructor.countDocuments();
+      this.kotNumber = `KOT${String(count + 1).padStart(6, '0')}`;
+    }
+    next();
+  });
+  
+  return schema;
+};
 
 class TenantModelFactory {
   constructor() {
@@ -462,16 +474,6 @@ class TenantModelFactory {
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
       const kotSchema = createKOTSchema();
-      
-      // Generate KOT number
-      kotSchema.pre('save', async function(next) {
-        if (!this.kotNumber) {
-          const count = await this.constructor.countDocuments();
-          this.kotNumber = `KOT${String(count + 1).padStart(6, '0')}`;
-        }
-        next();
-      });
-      
       this.models.set(modelKey, connection.model('kots', kotSchema));
     }
     return this.models.get(modelKey);

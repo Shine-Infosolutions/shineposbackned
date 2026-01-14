@@ -4,6 +4,8 @@ const kotPrinter = require('../utils/kotPrinter');
 const getKitchenOrders = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
+    console.log('Fetching kitchen orders for restaurant:', restaurantSlug);
+    
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     
@@ -15,6 +17,8 @@ const getKitchenOrders = async (req, res) => {
     const kots = await KOTModel.find({
       status: { $in: ['PENDING', 'IN_PROGRESS'] }
     }).sort({ priority: -1, createdAt: 1 });
+    
+    console.log('Found orders:', orders.length, 'Found KOTs:', kots.length);
     
     res.json({ orders, kots });
   } catch (error) {
@@ -151,9 +155,39 @@ const printOrderKOT = async (req, res) => {
   }
 };
 
+// Update KOT status
+const updateKOTStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
+    
+    const kot = await KOTModel.findByIdAndUpdate(
+      id,
+      { 
+        status,
+        ...(status === 'IN_PROGRESS' && { startedAt: new Date() }),
+        ...(status === 'COMPLETED' && { completedAt: new Date() })
+      },
+      { new: true }
+    );
+
+    if (!kot) {
+      return res.status(404).json({ error: 'KOT not found' });
+    }
+
+    res.json({ message: 'KOT status updated successfully', kot });
+  } catch (error) {
+    console.error('Update KOT status error:', error);
+    res.status(500).json({ error: 'Failed to update KOT status' });
+  }
+};
+
 module.exports = {
   getKitchenOrders,
   updateOrderStatus,
   setPriority,
-  printOrderKOT
+  printOrderKOT,
+  updateKOTStatus
 };
