@@ -73,6 +73,13 @@ const createOrderSchema = () => new mongoose.Schema({
     required: true,
     unique: true
   },
+  tableId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'tables'
+  },
+  tableNumber: {
+    type: String
+  },
   items: [{
     menuId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -256,6 +263,111 @@ const createStaffSchema = () => new mongoose.Schema({
 }, {
   timestamps: true
 });
+
+// Table Schema for tenant-specific collections
+const createTableSchema = () => new mongoose.Schema({
+  tableNumber: {
+    type: String,
+    required: true,
+    unique: true,
+    trim: true
+  },
+  capacity: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  location: {
+    type: String,
+    enum: ['INDOOR'],
+    default: 'INDOOR'
+  },
+  status: {
+    type: String,
+    enum: ['AVAILABLE', 'OCCUPIED', 'RESERVED', 'MAINTENANCE'],
+    default: 'AVAILABLE'
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  }
+}, {
+  timestamps: true
+});
+
+// TableBooking Schema for tenant-specific collections
+const createTableBookingSchema = () => {
+  const schema = new mongoose.Schema({
+    bookingNumber: {
+      type: String,
+      required: true,
+      unique: true
+    },
+    tableId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'tables',
+      required: true
+    },
+    customerName: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    customerPhone: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    customerEmail: {
+      type: String,
+      trim: true,
+      lowercase: true
+    },
+    partySize: {
+      type: Number,
+      required: true,
+      min: 1
+    },
+    bookingDate: {
+      type: Date,
+      required: true
+    },
+    bookingTime: {
+      type: String,
+      required: true
+    },
+    duration: {
+      type: Number,
+      default: 120
+    },
+    status: {
+      type: String,
+      enum: ['PENDING', 'CONFIRMED', 'SEATED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'],
+      default: 'PENDING'
+    },
+    specialRequests: {
+      type: String,
+      trim: true
+    },
+    orderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'orders'
+    }
+  }, {
+    timestamps: true
+  });
+  
+  // Generate booking number before saving
+  schema.pre('save', async function(next) {
+    if (!this.bookingNumber) {
+      const count = await this.constructor.countDocuments();
+      this.bookingNumber = `BK${String(count + 1).padStart(6, '0')}`;
+    }
+    next();
+  });
+  
+  return schema;
+};
 
 // KOT Schema for tenant-specific collections
 const createKOTSchema = () => {
@@ -479,6 +591,25 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getTableModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_tables`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('tables', createTableSchema()));
+    }
+    return this.models.get(modelKey);
+  }
+
+  getTableBookingModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_tablebookings`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      const tableBookingSchema = createTableBookingSchema();
+      this.models.set(modelKey, connection.model('tablebookings', tableBookingSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   async createTenantDatabase(restaurantSlug) {
     // Initialize models to create database and collections
     this.getUserModel(restaurantSlug);
@@ -491,6 +622,8 @@ class TenantModelFactory {
     this.getAddonModel(restaurantSlug);
     this.getVariationModel(restaurantSlug);
     this.getKOTModel(restaurantSlug);
+    this.getTableModel(restaurantSlug);
+    this.getTableBookingModel(restaurantSlug);
   }
 }
 

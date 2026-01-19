@@ -40,6 +40,11 @@ router.post(
       .optional()
       .isMobilePhone()
       .withMessage("Invalid phone number"),
+
+    body("tableId")
+      .optional()
+      .isMongoId()
+      .withMessage("Invalid table ID"),
   ],
   createOrder
 );

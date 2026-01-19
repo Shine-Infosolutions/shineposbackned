@@ -20,7 +20,7 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ error: "Restaurant slug not found" });
     }
 
-    const { items, customerName, customerPhone } = req.body;
+    const { items, customerName, customerPhone, tableId } = req.body;
 
     if (!items || !items.length) {
       return res.status(400).json({ error: "Items are required" });
@@ -130,12 +130,26 @@ const createOrder = async (req, res) => {
       req.tenantModels?.Order ||
       TenantModelFactory.getOrderModel(restaurantSlug);
 
+    // Handle table assignment if provided
+    let tableNumber = null;
+    if (tableId) {
+      const TableModel = TenantModelFactory.getTableModel(restaurantSlug);
+      const table = await TableModel.findById(tableId);
+      if (table) {
+        tableNumber = table.tableNumber;
+        // Update table status to occupied
+        await TableModel.findByIdAndUpdate(tableId, { status: "OCCUPIED" });
+      }
+    }
+
     const order = new OrderModel({
       orderNumber,
       items: orderItems,
       totalAmount,
       customerName,
       customerPhone: customerPhone || "",
+      tableId: tableId || null,
+      tableNumber: tableNumber,
     });
 
     const savedOrder = await order.save();
