@@ -1,16 +1,16 @@
-const express = require('express');
-const { body } = require('express-validator');
-const { activityLogger } = require('../middleware/activityLogger');
-const { 
-  createInventoryItem, 
-  getInventory, 
-  updateInventoryItem, 
-  restockItem, 
+const express = require("express");
+const { body } = require("express-validator");
+const { activityLogger } = require("../middleware/activityLogger");
+const {
+  createInventoryItem,
+  getInventory,
+  updateInventoryItem,
+  restockItem,
   getLowStockItems,
   deleteInventoryItem
-} = require('../controllers/inventoryController');
-const auth = require('../middleware/auth');
-const tenantMiddleware = require('../middleware/tenant');
+} = require("../controllers/inventoryController");
+const auth = require("../middleware/auth");
+const tenantMiddleware = require("../middleware/tenant");
 
 const router = express.Router();
 
@@ -21,6 +21,7 @@ router.get(
   activityLogger("Inventory"),
   getInventory
 );
+
 router.get(
   "/all/low-stock",
   auth(["RESTAURANT_ADMIN", "STAFF"]),
@@ -28,6 +29,7 @@ router.get(
   activityLogger("Inventory"),
   getLowStockItems
 );
+
 router.post(
   "/add",
   auth(["RESTAURANT_ADMIN"]),
@@ -51,6 +53,7 @@ router.post(
   ],
   createInventoryItem
 );
+
 router.put(
   "/update/item/:id",
   auth(["RESTAURANT_ADMIN"]),
@@ -58,6 +61,7 @@ router.put(
   activityLogger("Inventory"),
   updateInventoryItem
 );
+
 router.patch(
   "/update/restock/:id",
   auth(["RESTAURANT_ADMIN", "STAFF"]),
@@ -67,7 +71,11 @@ router.patch(
   restockItem
 );
 
-// Delete inventory item
-router.delete('/delete/:id', auth(['RESTAURANT_ADMIN']), tenantMiddleware, deleteInventoryItem);
+router.delete(
+  "/delete/:id",
+  auth(["RESTAURANT_ADMIN"]),
+  tenantMiddleware,
+  deleteInventoryItem
+);
 
 module.exports = router;

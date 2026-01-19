@@ -1,6 +1,8 @@
 const express = require('express');
+const { param } = require('express-validator');
 const router = express.Router();
 const kotController = require('../controllers/kotController');
+const { getKOTData, printKOT } = require('../controllers/orderController');
 const auth = require('../middleware/auth');
 
 // Create KOT from order
@@ -24,7 +26,35 @@ router.patch('/:id/priority', auth, kotController.updateKOTPriority);
 // Print KOT
 router.post('/:id/print', auth, kotController.printKOT);
 
+/* =====================================================
+   ORDER-RELATED KOT ROUTES
+===================================================== */
+// Get KOT data from order
+router.get('/order/:id', 
+  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  [
+    param("id")
+      .isMongoId()
+      .withMessage("Invalid order ID"),
+  ],
+  getKOTData
+);
+
+// Print KOT from order
+router.post('/order/:id/print',
+  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  [
+    param("id")
+      .isMongoId()
+      .withMessage("Invalid order ID"),
+  ],
+  printKOT
+);
+
 // Delete KOT
-router.delete('/:id', auth, kotController.deleteKOT);
+router.delete('/:id', 
+  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]), 
+  kotController.deleteKOT
+);
 
 module.exports = router;

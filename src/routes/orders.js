@@ -5,19 +5,21 @@ const {
   getOrders,
   createOrder,
   updateOrderStatus,
-  processPayment,
+  updateOrderPriority,
 } = require("../controllers/orderController");
 const auth = require("../middleware/auth");
+const checkSubscription = require("../middleware/checkSubscription");
 const TenantModelFactory = require("../models/TenantModelFactory");
 
 const router = express.Router();
 
-/* =====================================================
-   CREATE ORDER (STAFF)
-===================================================== */
+
+//CREATE ORDER (STAFF)
+
 router.post(
   "/add/staff",
   auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  checkSubscription,
   activityLogger('Order'),
   [
     body("items")
@@ -54,7 +56,8 @@ router.post(
    AUTH FOR ALL BELOW ROUTES
 ===================================================== */
 router.use(
-  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"])
+  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  checkSubscription
 );
 
 /* =====================================================
@@ -93,6 +96,7 @@ router.patch(
 ===================================================== */
 router.patch(
   "/update/priority/:id",
+  activityLogger('Order'),
   [
     param("id")
       .isMongoId()
@@ -102,164 +106,7 @@ router.patch(
       .isIn(["LOW", "NORMAL", "HIGH", "URGENT"])
       .withMessage("Invalid priority"),
   ],
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { priority } = req.body;
-      const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
-      const KOTModel = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
-      
-      const order = await OrderModel.findByIdAndUpdate(
-        id,
-        { priority },
-        { new: true }
-      );
-      
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
-      }
-      
-      // Sync priority with associated KOTs
-      await KOTModel.updateMany(
-        { orderId: id },
-        { priority }
-      );
-      
-      res.json({
-        message: "Order priority updated successfully",
-        order
-      });
-    } catch (error) {
-      console.error("Update order priority error:", error);
-      res.status(500).json({ error: "Failed to update order priority" });
-    }
-  }
-);
-
-/* =====================================================
-   PROCESS PAYMENT
-===================================================== */
-router.patch(
-  "/payment/:id",
-  activityLogger('Payment'),
-  [
-    param("id")
-      .isMongoId()
-      .withMessage("Invalid order ID"),
-
-    body("method")
-      .isIn(["CASH", "CARD", "UPI", "ONLINE"])
-      .withMessage("Invalid payment method"),
-
-    body("amount")
-      .isFloat({ min: 0 })
-      .withMessage("Invalid payment amount"),
-
-    body("transactionId")
-      .optional()
-      .isString(),
-  ],
-  processPayment
-);
-
-/* =====================================================
-   GET KOT DATA
-===================================================== */
-router.get(
-  "/kot/:id",
-  [
-    param("id")
-      .isMongoId()
-      .withMessage("Invalid order ID"),
-  ],
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      
-      const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
-      const Restaurant = require("../models/Restaurant");
-      
-      const order = await OrderModel.findById(id);
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
-      }
-      
-      const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-      
-      const kotData = {
-        restaurantName: restaurant?.name || 'Restaurant',
-        restaurantSlug: req.user.restaurantSlug,
-        orderNumber: order.orderNumber,
-        tableNumber: order.tableNumber,
-        customerName: order.customerName,
-        items: order.items.map(item => ({
-          name: item.name,
-          quantity: item.quantity,
-          category: item.category,
-          variation: item.variation,
-          addons: item.addons || [],
-          notes: item.notes
-        })),
-        createdAt: order.createdAt,
-        status: order.status
-      };
-      
-      res.json({ kot: kotData });
-    } catch (error) {
-      console.error("Get KOT error:", error);
-      res.status(500).json({ error: "Failed to get KOT data" });
-    }
-  }
-);
-
-/* =====================================================
-   PRINT KOT
-===================================================== */
-router.post(
-  "/print-kot/:id",
-  [
-    param("id")
-      .isMongoId()
-      .withMessage("Invalid order ID"),
-  ],
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const kotPrinter = require("../utils/kotPrinter");
-      
-      const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
-      const Restaurant = require("../models/Restaurant");
-      
-      const order = await OrderModel.findById(id);
-      if (!order) {
-        return res.status(404).json({ error: "Order not found" });
-      }
-      
-      const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-      
-      const kotData = {
-        restaurantName: restaurant?.name || 'Restaurant',
-        orderNumber: order.orderNumber,
-        items: order.items.map(item => ({
-          name: item.name,
-          quantity: item.quantity,
-          addons: item.addons || []
-        })),
-        createdAt: order.createdAt
-      };
-      
-      const result = await kotPrinter.printKOT(kotData);
-      
-      if (result.success) {
-        res.json({ message: "KOT printed successfully" });
-      } else {
-        res.status(500).json({ error: "Failed to print KOT", details: result.error });
-      }
-    } catch (error) {
-      console.error("Print KOT error:", error);
-      res.status(500).json({ error: "Failed to print KOT" });
-    }
-  }
+  updateOrderPriority
 );
 
 module.exports = router;

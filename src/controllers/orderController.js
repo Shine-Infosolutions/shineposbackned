@@ -2,6 +2,7 @@ const { validationResult } = require("express-validator");
 const TenantModelFactory = require("../models/TenantModelFactory");
 const Restaurant = require("../models/Restaurant");
 const kotPrinter = require("../utils/kotPrinter");
+const { prepareKOTData } = require("../utils/kotDataHelper");
 
 /* =====================================================
    CREATE ORDER
@@ -358,6 +359,86 @@ const processPayment = async (req, res) => {
 };
 
 /* =====================================================
+   UPDATE ORDER PRIORITY
+===================================================== */
+const updateOrderPriority = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { priority } = req.body;
+    const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const KOTModel = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
+    
+    const order = await OrderModel.findByIdAndUpdate(
+      id,
+      { priority },
+      { new: true }
+    );
+    
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    
+    // Sync priority with associated KOTs
+    await KOTModel.updateMany(
+      { orderId: id },
+      { priority }
+    );
+    
+    res.json({
+      message: "Order priority updated successfully",
+      order
+    });
+  } catch (error) {
+    console.error("Update order priority error:", error);
+    res.status(500).json({ error: "Failed to update order priority" });
+  }
+};
+
+/* =====================================================
+   GET KOT DATA
+===================================================== */
+const getKOTData = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { kotData } = await prepareKOTData(id, req.user.restaurantSlug, true);
+    
+    res.json({ kot: kotData });
+  } catch (error) {
+    console.error("Get KOT error:", error);
+    if (error.message === "Order not found") {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    res.status(500).json({ error: "Failed to get KOT data" });
+  }
+};
+
+/* =====================================================
+   PRINT KOT
+===================================================== */
+const printKOT = async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const { kotData } = await prepareKOTData(id, req.user.restaurantSlug);
+    
+    const result = await kotPrinter.printKOT(kotData);
+    
+    if (result.success) {
+      res.json({ message: "KOT printed successfully" });
+    } else {
+      res.status(500).json({ error: "Failed to print KOT", details: result.error });
+    }
+  } catch (error) {
+    console.error("Print KOT error:", error);
+    if (error.message === "Order not found") {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    res.status(500).json({ error: "Failed to print KOT" });
+  }
+};
+
+/* =====================================================
    EXPORTS
 ===================================================== */
 module.exports = {
@@ -365,4 +446,7 @@ module.exports = {
   getOrders,
   updateOrderStatus,
   processPayment,
+  updateOrderPriority,
+  getKOTData,
+  printKOT,
 };
