@@ -415,7 +415,7 @@ const createKOTSchema = () => {
     }],
     status: {
       type: String,
-      enum: ['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'],
+      enum: ['PENDING', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED', 'PAID'],
       default: 'PENDING'
     },
     priority: {

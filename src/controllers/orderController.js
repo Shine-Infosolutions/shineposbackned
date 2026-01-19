@@ -133,12 +133,24 @@ const createOrder = async (req, res) => {
     // Handle table assignment if provided
     let tableNumber = null;
     if (tableId) {
+      console.log('Table ID provided:', tableId);
+      console.log('Restaurant slug:', restaurantSlug);
       const TableModel = TenantModelFactory.getTableModel(restaurantSlug);
+      
       const table = await TableModel.findById(tableId);
+      console.log('Found table:', table);
+      
       if (table) {
         tableNumber = table.tableNumber;
+        console.log('Updating table status to OCCUPIED for table:', tableNumber);
+        
         // Update table status to occupied
-        await TableModel.findByIdAndUpdate(tableId, { status: "OCCUPIED" });
+        table.status = "OCCUPIED";
+        await table.save();
+        
+        console.log('Table status updated to:', table.status);
+      } else {
+        console.log('Table not found with ID:', tableId);
       }
     }
 
@@ -238,48 +250,60 @@ const updateOrderStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
+    console.log('UPDATE ORDER STATUS - ID:', id, 'Status:', status);
+
     const allowedStatuses = [
       "PENDING",
-      "ORDER_ACCEPTED",
       "PREPARING",
       "READY",
-      "SERVED",
-      "COMPLETE",
+      "DELIVERED",
       "CANCELLED",
+      "PAID",
     ];
 
     if (!allowedStatuses.includes(status)) {
       return res.status(400).json({ error: "Invalid order status" });
     }
 
-    const OrderModel =
-      req.tenantModels?.Order ||
-      TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
 
-    const order = await OrderModel.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true }
-    );
-
+    const order = await OrderModel.findById(id);
     if (!order) {
       return res.status(404).json({ error: "Order not found" });
+    }
+
+    order.status = status;
+    const savedOrder = await order.save();
+    
+    console.log('Order status updated to:', savedOrder.status);
+
+    // Update table status when order is completed or cancelled
+    if ((status === "CANCELLED" || status === "PAID") && order.tableId) {
+      const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
+      const table = await TableModel.findById(order.tableId);
+      if (table) {
+        table.status = "AVAILABLE";
+        await table.save();
+        console.log('Table status updated to AVAILABLE');
+      }
     }
 
     // Update associated KOT status
     try {
       const KOTModel = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
-      await KOTModel.updateMany(
-        { orderId: id },
-        { status }
-      );
+      const kots = await KOTModel.find({ orderId: id });
+      for (const kot of kots) {
+        kot.status = status;
+        await kot.save();
+      }
+      console.log('KOT status synced to:', status);
     } catch (kotError) {
       console.error('KOT status sync error:', kotError);
     }
 
     res.json({
       message: "Order status updated successfully",
-      order,
+      order: savedOrder,
     });
   } catch (error) {
     console.error("Update order error:", error);

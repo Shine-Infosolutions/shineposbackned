@@ -16,7 +16,7 @@ router.get('/dashboard', auth, kotController.getKitchenDashboard);
 router.get('/:id', auth, kotController.getKOTById);
 
 // Update KOT status
-router.patch('/:id/status', auth, kotController.updateKOTStatus);
+router.patch('/:id/status', auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER']), kotController.updateKOTStatus);
 
 // Update KOT priority
 router.patch('/:id/priority', auth, kotController.updateKOTPriority);

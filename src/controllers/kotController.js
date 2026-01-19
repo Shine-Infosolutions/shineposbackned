@@ -88,31 +88,44 @@ const updateKOTStatus = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     
-    const updateData = { status };
+    console.log('UPDATE KOT STATUS - ID:', id, 'Status:', status);
     
-    // Add timestamps based on status
-    if (status === 'IN_PROGRESS') {
-      updateData.startedAt = new Date();
-    } else if (status === 'COMPLETED') {
-      updateData.completedAt = new Date();
-      
-      // Calculate actual time if started
-      const kot = await KOTModel.findById(id);
-      if (kot && kot.startedAt) {
-        const timeDiff = (new Date() - kot.startedAt) / (1000 * 60); // in minutes
-        updateData.actualTime = Math.round(timeDiff);
-      }
+    const allowedStatuses = ['PENDING', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED', 'PAID'];
+    if (!allowedStatuses.includes(status)) {
+      console.log('Invalid KOT status:', status);
+      return res.status(400).json({ error: 'Invalid KOT status' });
     }
     
-    const kot = await KOTModel.findByIdAndUpdate(id, updateData, { new: true });
-    
+    const kot = await KOTModel.findById(id);
     if (!kot) {
+      console.log('KOT not found');
       return res.status(404).json({ error: 'KOT not found' });
+    }
+    
+    console.log('KOT found, current status:', kot.status);
+    console.log('Attempting to change to:', status);
+    
+    kot.status = status;
+    const savedKOT = await kot.save();
+    
+    console.log('KOT after save:', savedKOT.status);
+
+    // Update associated order status
+    try {
+      const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
+      const order = await OrderModel.findById(kot.orderId);
+      if (order) {
+        order.status = status;
+        await order.save();
+        console.log('Order status synced to:', status);
+      }
+    } catch (orderError) {
+      console.error('Order status sync error:', orderError);
     }
     
     res.json({
       message: 'KOT status updated successfully',
-      kot
+      kot: savedKOT
     });
   } catch (error) {
     console.error('Update KOT status error:', error);
@@ -129,24 +142,26 @@ const updateKOTPriority = async (req, res) => {
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     
-    const kot = await KOTModel.findByIdAndUpdate(
-      id,
-      { priority },
-      { new: true }
-    );
-    
+    const kot = await KOTModel.findById(id);
     if (!kot) {
       return res.status(404).json({ error: 'KOT not found' });
     }
     
+    kot.priority = priority;
+    const savedKOT = await kot.save();
+    
     // Sync priority with associated order
     if (kot.orderId) {
-      await OrderModel.findByIdAndUpdate(kot.orderId, { priority });
+      const order = await OrderModel.findById(kot.orderId);
+      if (order) {
+        order.priority = priority;
+        await order.save();
+      }
     }
     
     res.json({
       message: 'KOT priority updated successfully',
-      kot
+      kot: savedKOT
     });
   } catch (error) {
     console.error('Update KOT priority error:', error);
