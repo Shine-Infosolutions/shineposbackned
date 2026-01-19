@@ -8,6 +8,8 @@ const {
   updateOrderPriority,
 } = require("../controllers/orderController");
 const auth = require("../middleware/auth");
+const checkSubscription = require("../middleware/checkSubscription");
+const TenantModelFactory = require("../models/TenantModelFactory");
 
 const router = express.Router();
 
@@ -17,6 +19,7 @@ const router = express.Router();
 router.post(
   "/add/staff",
   auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  checkSubscription,
   activityLogger('Order'),
   [
     body("items")
@@ -53,7 +56,8 @@ router.post(
    AUTH FOR ALL BELOW ROUTES
 ===================================================== */
 router.use(
-  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"])
+  auth(["RESTAURANT_ADMIN", "MANAGER", "CHEF", "WAITER", "CASHIER"]),
+  checkSubscription
 );
 
 /* =====================================================
