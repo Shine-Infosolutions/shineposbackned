@@ -61,17 +61,21 @@ const updateStaff = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
+    const staff = await StaffModel.findById(id);
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found' });
+    }
+    
     const updateData = { ...req.body };
     if (updateData.password) {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
     
-    const staff = await StaffModel.findByIdAndUpdate(id, updateData, { new: true }).select('-password');
-    if (!staff) {
-      return res.status(404).json({ error: 'Staff member not found' });
-    }
-
-    res.json({ message: 'Staff member updated successfully', staff });
+    Object.assign(staff, updateData);
+    await staff.save();
+    
+    const { password: _, ...staffData } = staff.toObject();
+    res.json({ message: 'Staff member updated successfully', staff: staffData });
   } catch (error) {
     console.error('Update staff error:', error);
     res.status(500).json({ error: 'Failed to update staff member' });
@@ -107,23 +111,20 @@ const updatePerformance = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
-    const staff = await StaffModel.findByIdAndUpdate(
-      id,
-      { 
-        $set: {
-          'performance.ordersProcessed': ordersProcessed,
-          'performance.averageOrderTime': averageOrderTime,
-          'performance.customerRating': customerRating
-        }
-      },
-      { new: true }
-    ).select('-password');
-
+    const staff = await StaffModel.findById(id);
     if (!staff) {
       return res.status(404).json({ error: 'Staff member not found' });
     }
-
-    res.json({ message: 'Performance updated successfully', staff });
+    
+    staff.performance = {
+      ordersProcessed,
+      averageOrderTime,
+      customerRating
+    };
+    await staff.save();
+    
+    const { password: _, ...staffData } = staff.toObject();
+    res.json({ message: 'Performance updated successfully', staff: staffData });
   } catch (error) {
     console.error('Update performance error:', error);
     res.status(500).json({ error: 'Failed to update performance' });

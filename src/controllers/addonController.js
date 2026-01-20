@@ -52,15 +52,18 @@ const updateAddon = async (req, res) => {
         const { name, price, description, veg, available } = req.body;
         const Addon = req.tenantModels.Addon;
         
-        const addon = await Addon.findByIdAndUpdate(
-            id,
-            { name, price, description, veg, available },
-            { new: true }
-        );
-        
+        const addon = await Addon.findById(id);
         if (!addon) {
             return res.status(404).json({ error: 'Addon not found' });
         }
+        
+        if (name !== undefined) addon.name = name;
+        if (price !== undefined) addon.price = price;
+        if (description !== undefined) addon.description = description;
+        if (veg !== undefined) addon.veg = veg;
+        if (available !== undefined) addon.available = available;
+        
+        await addon.save();
         
         res.json({ message: 'Addon updated successfully', addon });
     } catch (error) {

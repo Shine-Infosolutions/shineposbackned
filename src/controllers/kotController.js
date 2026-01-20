@@ -198,8 +198,8 @@ const printKOT = async (req, res) => {
     const printResult = await kotPrinter.printKOT(printData);
     
     if (printResult.success) {
-      // Update printed timestamp
-      await KOTModel.findByIdAndUpdate(id, { printedAt: new Date() });
+      kot.printedAt = new Date();
+      await kot.save();
       
       res.json({
         message: 'KOT printed successfully',

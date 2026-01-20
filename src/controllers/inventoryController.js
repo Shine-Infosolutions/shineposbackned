@@ -50,10 +50,13 @@ const updateInventoryItem = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
     
-    const inventoryItem = await InventoryModel.findByIdAndUpdate(id, req.body, { new: true });
+    const inventoryItem = await InventoryModel.findById(id);
     if (!inventoryItem) {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
+    
+    Object.assign(inventoryItem, req.body);
+    await inventoryItem.save();
 
     res.json({ message: 'Inventory item updated successfully', inventoryItem });
   } catch (error) {
@@ -108,10 +111,13 @@ const deleteInventoryItem = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
     
-    const inventoryItem = await InventoryModel.findByIdAndUpdate(id, { isActive: false }, { new: true });
+    const inventoryItem = await InventoryModel.findById(id);
     if (!inventoryItem) {
       return res.status(404).json({ error: 'Inventory item not found' });
     }
+    
+    inventoryItem.isActive = false;
+    await inventoryItem.save();
 
     res.json({ message: 'Inventory item deleted successfully' });
   } catch (error) {

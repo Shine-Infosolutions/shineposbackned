@@ -107,14 +107,22 @@ const markAsRead = async (req, res) => {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
-    await Communication.findByIdAndUpdate(messageId, {
-      $addToSet: {
-        readBy: {
-          restaurantId: restaurant._id,
-          readAt: new Date()
-        }
-      }
-    });
+    const communication = await Communication.findById(messageId);
+    if (!communication) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+    
+    const alreadyRead = communication.readBy.some(
+      read => read.restaurantId.toString() === restaurant._id.toString()
+    );
+    
+    if (!alreadyRead) {
+      communication.readBy.push({
+        restaurantId: restaurant._id,
+        readAt: new Date()
+      });
+      await communication.save();
+    }
 
     res.json({ message: 'Message marked as read' });
   } catch (error) {

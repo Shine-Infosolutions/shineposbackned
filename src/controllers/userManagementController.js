@@ -142,29 +142,28 @@ const updateUser = async (req, res) => {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
-    // Try to find and update in users collection first
     const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
-    let user = await UserModel.findByIdAndUpdate(
-      userId,
-      { name, role, isActive, permissions, shift },
-      { new: true }
-    ).select('-password');
+    let user = await UserModel.findById(userId);
 
-    // If not found in users, try staff collection
     if (!user) {
       const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
-      user = await StaffModel.findByIdAndUpdate(
-        userId,
-        { name, role, isActive, permissions, shift },
-        { new: true }
-      ).select('-password');
+      user = await StaffModel.findById(userId);
     }
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
-    res.json({ message: 'User updated successfully', user });
+    
+    if (name !== undefined) user.name = name;
+    if (role !== undefined) user.role = role;
+    if (isActive !== undefined) user.isActive = isActive;
+    if (permissions !== undefined) user.permissions = permissions;
+    if (shift !== undefined) user.shift = shift;
+    
+    await user.save();
+    
+    const { password: _, ...userData } = user.toObject();
+    res.json({ message: 'User updated successfully', user: userData });
   } catch (error) {
     console.error('Update user error:', error);
     res.status(500).json({ error: 'Failed to update user' });

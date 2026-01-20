@@ -52,15 +52,16 @@ const updateVariation = async (req, res) => {
         const { name, price, available } = req.body;
         const Variation = req.tenantModels.Variation;
         
-        const variation = await Variation.findByIdAndUpdate(
-            id,
-            { name, price, available },
-            { new: true }
-        );
-        
+        const variation = await Variation.findById(id);
         if (!variation) {
             return res.status(404).json({ error: 'Variation not found' });
         }
+        
+        if (name !== undefined) variation.name = name;
+        if (price !== undefined) variation.price = price;
+        if (available !== undefined) variation.available = available;
+        
+        await variation.save();
         
         res.json({ message: 'Variation updated successfully', variation });
     } catch (error) {

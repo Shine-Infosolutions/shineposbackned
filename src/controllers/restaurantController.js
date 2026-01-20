@@ -131,8 +131,12 @@ const updateRestaurant = async (req, res) => {
     const { id } = req.params;
     const { restaurantName, slug } = req.body;
     
-    const updateData = {};
-    if (restaurantName) updateData.restaurantName = restaurantName;
+    const restaurant = await Restaurant.findById(id);
+    if (!restaurant) {
+      return res.status(404).json({ error: 'Restaurant not found' });
+    }
+    
+    if (restaurantName) restaurant.restaurantName = restaurantName;
     if (slug) {
       const slugValue = slug.toLowerCase().trim();
       const existingRestaurant = await Restaurant.findOne({ 
@@ -142,14 +146,10 @@ const updateRestaurant = async (req, res) => {
       if (existingRestaurant) {
         return res.status(400).json({ error: 'Restaurant slug already exists' });
       }
-      updateData.slug = slugValue;
+      restaurant.slug = slugValue;
     }
     
-    const restaurant = await Restaurant.findByIdAndUpdate(id, updateData, { new: true });
-    
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurant not found' });
-    }
+    await restaurant.save();
 
     res.json({ message: 'Restaurant updated successfully', restaurant });
   } catch (error) {
@@ -177,15 +177,14 @@ const deleteRestaurant = async (req, res) => {
 const toggleRestaurantStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const restaurant = await Restaurant.findByIdAndUpdate(
-      id,
-      [{ $set: { isActive: { $not: '$isActive' } } }],
-      { new: true }
-    );
+    const restaurant = await Restaurant.findById(id);
     
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
+    
+    restaurant.isActive = !restaurant.isActive;
+    await restaurant.save();
 
     res.json({
       message: `Restaurant ${restaurant.isActive ? 'enabled' : 'disabled'} successfully`,

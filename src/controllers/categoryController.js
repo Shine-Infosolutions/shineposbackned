@@ -35,15 +35,16 @@ const updateCategory = async (req, res) => {
         const { name, description, isActive } = req.body;
         const Category = req.tenantModels.Category;
         
-        const category = await Category.findByIdAndUpdate(
-            id,
-            { name, description, isActive },
-            { new: true }
-        );
-        
+        const category = await Category.findById(id);
         if (!category) {
             return res.status(404).json({ error: 'Category not found' });
         }
+        
+        if (name !== undefined) category.name = name;
+        if (description !== undefined) category.description = description;
+        if (isActive !== undefined) category.isActive = isActive;
+        
+        await category.save();
         
         res.json({ message: 'Category updated successfully', category });
     } catch (error) {

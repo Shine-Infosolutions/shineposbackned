@@ -66,15 +66,18 @@ const updateTable = async (req, res) => {
             }
         }
         
-        const table = await Table.findByIdAndUpdate(
-            id,
-            { tableNumber, capacity, location, status, isActive },
-            { new: true }
-        );
-        
+        const table = await Table.findById(id);
         if (!table) {
             return res.status(404).json({ error: 'Table not found' });
         }
+        
+        if (tableNumber !== undefined) table.tableNumber = tableNumber;
+        if (capacity !== undefined) table.capacity = capacity;
+        if (location !== undefined) table.location = location;
+        if (status !== undefined) table.status = status;
+        if (isActive !== undefined) table.isActive = isActive;
+        
+        await table.save();
         
         res.json({ message: 'Table updated successfully', table });
     } catch (error) {

@@ -64,10 +64,17 @@ const updateMenuItem = async (req, res) => {
         const { id } = req.params;
         const MenuItem = req.tenantModels.MenuItem;
         
-        const menuItem = await MenuItem.findByIdAndUpdate(id, req.body, { new: true }).populate('categoryID').populate('addon').populate('variation');
+        const menuItem = await MenuItem.findById(id);
         if (!menuItem) {
             return res.status(404).json({ error: 'Menu item not found' });
         }
+        
+        Object.assign(menuItem, req.body);
+        await menuItem.save();
+        
+        await menuItem.populate('categoryID');
+        await menuItem.populate('addon');
+        await menuItem.populate('variation');
         
         res.json({ message: 'Menu item updated successfully', menuItem });
     } catch (error) {

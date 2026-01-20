@@ -35,21 +35,16 @@ const updateOrderStatus = async (req, res) => {
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     
-    const order = await OrderModel.findByIdAndUpdate(
-      id,
-      { 
-        status,
-        ...(status === 'PREPARING' && { prepStartTime: new Date() }),
-        ...(status === 'READY' && { prepEndTime: new Date() })
-      },
-      { new: true }
-    );
-
+    const order = await OrderModel.findById(id);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
+    
+    order.status = status;
+    if (status === 'PREPARING') order.prepStartTime = new Date();
+    if (status === 'READY') order.prepEndTime = new Date();
+    await order.save();
 
-    // Auto-create KOT when order status changes to PREPARING
     if (status === 'PREPARING') {
       try {
         const existingKOT = await KOTModel.findOne({ orderId: id });
@@ -83,17 +78,14 @@ const setPriority = async (req, res) => {
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     
-    const order = await OrderModel.findByIdAndUpdate(
-      id,
-      { priority: priority || 'normal' },
-      { new: true }
-    );
-
+    const order = await OrderModel.findById(id);
     if (!order) {
       return res.status(404).json({ error: 'Order not found' });
     }
+    
+    order.priority = priority || 'normal';
+    await order.save();
 
-    // Update associated KOT priority
     await KOTModel.updateMany(
       { orderId: id },
       { priority: priority?.toUpperCase() || 'NORMAL' }
@@ -144,7 +136,8 @@ const printOrderKOT = async (req, res) => {
     const printResult = await kotPrinter.printKOT(printData);
     
     if (printResult.success) {
-      await KOTModel.findByIdAndUpdate(kot._id, { printedAt: new Date() });
+      kot.printedAt = new Date();
+      await kot.save();
       res.json({ message: 'KOT printed successfully', printResult });
     } else {
       res.status(500).json({ error: 'Failed to print KOT', details: printResult.error });
@@ -164,23 +157,22 @@ const updateKOTStatus = async (req, res) => {
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     
-    const kot = await KOTModel.findByIdAndUpdate(
-      id,
-      { 
-        status,
-        ...(status === 'PREPARING' && { startedAt: new Date() }),
-        ...((status === 'COMPLETE' || status === 'SERVED') && { completedAt: new Date() })
-      },
-      { new: true }
-    );
-
+    const kot = await KOTModel.findById(id);
     if (!kot) {
       return res.status(404).json({ error: 'KOT not found' });
     }
+    
+    kot.status = status;
+    if (status === 'PREPARING') kot.startedAt = new Date();
+    if (status === 'COMPLETE' || status === 'SERVED') kot.completedAt = new Date();
+    await kot.save();
 
-    // Update the associated order status
     if (kot.orderId) {
-      await OrderModel.findByIdAndUpdate(kot.orderId, { status });
+      const order = await OrderModel.findById(kot.orderId);
+      if (order) {
+        order.status = status;
+        await order.save();
+      }
     }
 
     res.json({ message: 'KOT status updated successfully', kot });
