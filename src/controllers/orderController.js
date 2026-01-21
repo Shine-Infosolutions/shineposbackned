@@ -137,7 +137,7 @@ const addItemsToOrder = async (req, res) => {
     await existingOrder.save();
 
     // Add new items to existing KOT (reuse same KOT)
-    existingKOT.items.push(...newKOTItems);
+    existingKOT.extraItems.push(...newKOTItems);
     await existingKOT.save();
 
     console.log('Items added to existing order:', existingOrder.orderNumber);
@@ -714,6 +714,7 @@ const addExtraItemsToOrder = async (req, res) => {
     console.log('Restaurant slug:', restaurantSlug);
 
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
+    const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     const MenuModel = TenantModelFactory.getMenuItemModel(restaurantSlug);
     const VariationModel = TenantModelFactory.getVariationModel(restaurantSlug);
     const AddonModel = TenantModelFactory.getAddonModel(restaurantSlug);
@@ -723,105 +724,98 @@ const addExtraItemsToOrder = async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    console.log('Order found:', order.orderNumber);
-
-    // Initialize extraItems array if it doesn't exist
-    if (!order.extraItems) {
-      order.extraItems = [];
+    let existingKOT = await KOTModel.findOne({ orderId });
+    if (!existingKOT) {
+      return res.status(404).json({ error: "KOT not found for this order" });
     }
 
     let totalAmount = 0;
     const newExtraItems = [];
+    const newKOTExtraItems = [];
 
     for (const item of extraItems) {
-      let name, quantity, price, total;
+      const { menuId, quantity, variation, addons } = item;
 
-      // Check if it's the simple format (name, quantity, price)
-      if (item.name && item.quantity && item.price !== undefined) {
-        name = item.name;
-        quantity = item.quantity;
-        price = item.price;
-        total = price * quantity;
+      if (!menuId || !quantity) {
+        return res.status(400).json({ error: "Invalid extra item data" });
       }
-      // Handle complex format (menuId, variations, addons)
-      else if (item.menuId && item.quantity) {
-        const { menuId, variation, addons } = item;
-        quantity = item.quantity;
 
-        console.log('Processing complex item:', { menuId, quantity });
+      const menuItem = await MenuModel.findById(menuId);
+      if (!menuItem || !menuItem.isAvailable) {
+        return res.status(400).json({ error: "Menu item not available" });
+      }
 
-        const menuItem = await MenuModel.findById(menuId);
-        if (!menuItem) {
-          console.log('Menu item not found:', menuId);
-          return res.status(400).json({ error: `Menu item not found: ${menuId}` });
+      const basePrice = 0;
+      let finalVariation = null;
+      let variationPrice = 0;
+
+      if (variation && variation.variationId) {
+        const validVariation = await VariationModel.findById(variation.variationId);
+        if (validVariation) {
+          variationPrice = validVariation.price;
+          finalVariation = {
+            variationId: validVariation._id,
+            name: validVariation.name,
+            price: validVariation.price,
+          };
         }
+      }
 
-        name = menuItem.itemName;
-        let itemPrice = 0;
+      let addonsTotal = 0;
+      const finalAddons = [];
 
-        // Add variation price
-        if (variation && variation.variationId) {
-          try {
-            const validVariation = await VariationModel.findById(variation.variationId);
-            if (validVariation) {
-              itemPrice += validVariation.price || 0;
-              console.log('Variation price added:', validVariation.price);
-            }
-          } catch (varError) {
-            console.log('Variation error:', varError.message);
-          }
-        }
-
-        // Add addons price
-        if (addons && addons.length) {
-          for (const addon of addons) {
-            if (addon.addonId) {
-              try {
-                const validAddon = await AddonModel.findById(addon.addonId);
-                if (validAddon) {
-                  itemPrice += validAddon.price || 0;
-                  console.log('Addon price added:', validAddon.price);
-                }
-              } catch (addonError) {
-                console.log('Addon error:', addonError.message);
-              }
+      if (addons && addons.length) {
+        for (const addon of addons) {
+          if (addon.addonId) {
+            const validAddon = await AddonModel.findById(addon.addonId);
+            if (validAddon) {
+              addonsTotal += validAddon.price;
+              finalAddons.push({
+                addonId: validAddon._id,
+                name: validAddon.name,
+                price: validAddon.price,
+              });
             }
           }
         }
-
-        price = itemPrice;
-        total = price * quantity;
-      }
-      else {
-        return res.status(400).json({ 
-          error: "Invalid item format. Provide either {name, quantity, price} or {menuId, quantity, variation?, addons?}" 
-        });
       }
 
-      console.log('Processing item:', { name, quantity, price, total });
+      const itemTotal = (basePrice + variationPrice + addonsTotal) * quantity;
+      totalAmount += itemTotal;
 
-      totalAmount += total;
-
-      newExtraItems.push({
-        name,
+      const newExtraItem = {
+        menuId: menuItem._id,
+        name: menuItem.itemName,
+        basePrice,
         quantity,
-        price,
-        total
+        variation: finalVariation,
+        addons: finalAddons,
+        itemTotal,
+        status: "PENDING"
+      };
+
+      newExtraItems.push(newExtraItem);
+      newKOTExtraItems.push({
+        menuId: menuItem._id,
+        name: menuItem.itemName,
+        quantity,
+        variation: finalVariation,
+        addons: finalAddons,
+        status: "PENDING"
       });
     }
 
-    console.log('Adding', newExtraItems.length, 'extra items');
-    console.log('Total amount to add:', totalAmount);
-
     order.extraItems.push(...newExtraItems);
     order.totalAmount += totalAmount;
-    
-    const savedOrder = await order.save();
-    console.log('Order saved successfully');
+    await order.save();
+
+    existingKOT.extraItems.push(...newKOTExtraItems);
+    await existingKOT.save();
 
     res.json({
       message: "Extra items added successfully",
-      order: savedOrder
+      order,
+      kot: existingKOT
     });
   } catch (error) {
     console.error("Add extra items error:", error);
@@ -846,6 +840,7 @@ const updateExtraItemStatus = async (req, res) => {
     }
 
     const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const KOTModel = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
 
     const order = await OrderModel.findById(orderId);
     if (!order) {
@@ -859,9 +854,16 @@ const updateExtraItemStatus = async (req, res) => {
     order.extraItems[itemIndex].status = status;
     await order.save();
 
+    const kot = await KOTModel.findOne({ orderId });
+    if (kot && kot.extraItems[itemIndex]) {
+      kot.extraItems[itemIndex].status = status;
+      await kot.save();
+    }
+
     res.json({
       message: "Extra item status updated successfully",
-      order
+      order,
+      kot
     });
   } catch (error) {
     console.error("Update extra item status error:", error);

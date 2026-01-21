@@ -447,7 +447,40 @@ const createKOTSchema = () => {
         name: String,
         price: Number
       }],
-      specialInstructions: String
+      specialInstructions: String,
+      status: {
+        type: String,
+        enum: ['PENDING', 'PREPARING', 'READY', 'SERVED'],
+        default: 'PENDING'
+      }
+    }],
+    extraItems: [{
+      menuId: {
+        type: mongoose.Schema.Types.ObjectId,
+        required: true
+      },
+      name: {
+        type: String,
+        required: true
+      },
+      quantity: {
+        type: Number,
+        required: true,
+        min: 1
+      },
+      variation: {
+        name: String,
+        price: Number
+      },
+      addons: [{
+        name: String,
+        price: Number
+      }],
+      status: {
+        type: String,
+        enum: ['PENDING', 'PREPARING', 'READY', 'SERVED'],
+        default: 'PENDING'
+      }
     }],
     status: {
       type: String,
