@@ -32,8 +32,7 @@ const logActivity = async (userId, action, resource, options = {}) => {
 
     await ActivityLog.create(logData);
   } catch (error) {
-    console.error('❌ Activity logging failed:', error.message);
-    // TODO: Alert monitoring system
+    // Silent fail - don't log to console
   }
 };
 

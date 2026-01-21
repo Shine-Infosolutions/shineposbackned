@@ -80,6 +80,10 @@ const createOrderSchema = () => new mongoose.Schema({
   tableNumber: {
     type: String
   },
+  mergedTables: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'tables'
+  }],
   items: [{
     menuId: {
       type: mongoose.Schema.Types.ObjectId,
@@ -295,6 +299,15 @@ const createTableSchema = () => new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  mergedWith: {
+    type: [mongoose.Schema.Types.ObjectId],
+    ref: 'tables',
+    default: []
+  },
+  mergedGuestCount: {
+    type: Number,
+    default: null
   }
 }, {
   timestamps: true

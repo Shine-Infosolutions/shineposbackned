@@ -31,6 +31,17 @@ const TableSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+
+    mergedWith: {
+      type: [mongoose.Schema.Types.ObjectId],
+      ref: 'Table',
+      default: []
+    },
+
+    mergedGuestCount: {
+      type: Number,
+      default: null
+    }
   },
   { timestamps: true }
 );

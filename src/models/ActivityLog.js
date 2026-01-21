@@ -53,4 +53,6 @@ activityLogSchema.index({ restaurantSlug: 1, createdAt: -1 });
 activityLogSchema.index({ userId: 1, createdAt: -1 });
 activityLogSchema.index({ action: 1, createdAt: -1 });
 
+activityLogSchema.set('autoIndex', false);
+
 module.exports = mongoose.model('ActivityLog', activityLogSchema);

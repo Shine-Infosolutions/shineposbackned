@@ -10,7 +10,7 @@ const autoSaveMiddleware = function(schema) {
 
   // Post-save hook for logging
   schema.post('save', function(doc) {
-    console.log(`Auto-saved: ${this.constructor.modelName} - ${doc._id}`);
+    // Silent save - no console logs
   });
 
   // Pre-update hooks for findOneAndUpdate, updateOne, etc.
@@ -21,9 +21,7 @@ const autoSaveMiddleware = function(schema) {
 
   // Post-update hook
   schema.post(['findOneAndUpdate', 'updateOne', 'updateMany'], function(result) {
-    if (result) {
-      console.log(`Auto-updated: ${this.model.modelName}`);
-    }
+    // Silent update - no console logs
   });
 };
 

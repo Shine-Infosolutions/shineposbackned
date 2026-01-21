@@ -192,6 +192,79 @@ const transferTable = async (req, res) => {
     }
 };
 
+const mergeTables = async (req, res) => {
+    try {
+        const { tableIds, guestCount } = req.body;
+        const Table = TenantModelFactory.getTableModel(req.user.restaurantSlug);
+        
+        if (!tableIds || tableIds.length < 2) {
+            return res.status(400).json({ error: 'At least 2 tables required for merge' });
+        }
+        
+        const tables = await Table.find({ _id: { $in: tableIds } });
+        
+        if (tables.length !== tableIds.length) {
+            return res.status(404).json({ error: 'One or more tables not found' });
+        }
+        
+        const unavailableTables = tables.filter(t => t.status !== 'AVAILABLE');
+        if (unavailableTables.length > 0) {
+            return res.status(400).json({ 
+                error: 'All tables must be available for merge',
+                unavailableTables: unavailableTables.map(t => t.tableNumber)
+            });
+        }
+        
+        const totalCapacity = tables.reduce((sum, t) => sum + t.capacity, 0);
+        
+        if (guestCount > totalCapacity) {
+            return res.status(400).json({ 
+                error: `Guest count (${guestCount}) exceeds total capacity (${totalCapacity})`
+            });
+        }
+        
+        const mergedTables = await Table.find({ tableNumber: /^MG_T\d+$/ }).sort({ tableNumber: -1 }).limit(1);
+        let mergeNumber = 1;
+        if (mergedTables.length > 0) {
+            const lastNumber = parseInt(mergedTables[0].tableNumber.replace('MG_T', ''));
+            mergeNumber = lastNumber + 1;
+        }
+        const mergedTableNumber = `MG_T${String(mergeNumber).padStart(2, '0')}`;
+        
+        const mergedTable = new Table({
+            tableNumber: mergedTableNumber,
+            capacity: totalCapacity,
+            location: tables[0].location,
+            status: 'OCCUPIED',
+            mergedWith: tableIds,
+            mergedGuestCount: guestCount
+        });
+        const savedMergedTable = await mergedTable.save();
+        console.log('Merged table saved:', savedMergedTable);
+        
+        // Update each original table individually by fetching and saving
+        console.log('Updating original tables to OCCUPIED:', tableIds);
+        for (const tableId of tableIds) {
+            const table = await Table.findById(tableId);
+            if (table) {
+                table.status = 'OCCUPIED';
+                await table.save();
+                console.log('Updated table:', table.tableNumber, 'to OCCUPIED');
+            }
+        }
+        
+        res.json({ 
+            message: 'Tables merged successfully',
+            mergedTable: savedMergedTable,
+            originalTables: tables.map(t => t.tableNumber),
+            totalCapacity,
+            guestCount
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to merge tables' });
+    }
+};
+
 module.exports = {
     createTable,
     getTables,
@@ -200,7 +273,8 @@ module.exports = {
     updateTableStatus,
     deleteTable,
     getAvailableTables,
-    transferTable
+    transferTable,
+    mergeTables
 };
 
 

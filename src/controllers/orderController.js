@@ -287,6 +287,7 @@ const createOrder = async (req, res) => {
 
     // Handle table assignment if provided
     let tableNumber = null;
+    let mergedTables = [];
     if (tableId) {
       console.log('Table ID provided:', tableId);
       console.log('Restaurant slug:', restaurantSlug);
@@ -297,6 +298,13 @@ const createOrder = async (req, res) => {
       
       if (table) {
         tableNumber = table.tableNumber;
+        
+        // If it's a merged table, store the original table IDs
+        if (table.mergedWith && table.mergedWith.length > 0) {
+          mergedTables = table.mergedWith;
+          console.log('Merged tables stored:', mergedTables);
+        }
+        
         console.log('Updating table status to OCCUPIED for table:', tableNumber);
         
         // Update table status to occupied
@@ -317,6 +325,7 @@ const createOrder = async (req, res) => {
       customerPhone: customerPhone || "",
       tableId: tableId || null,
       tableNumber: tableNumber,
+      mergedTables: mergedTables.length > 0 ? mergedTables : undefined
     });
 
     const savedOrder = await order.save();
@@ -438,9 +447,25 @@ const updateOrderStatus = async (req, res) => {
       const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
       const table = await TableModel.findById(order.tableId);
       if (table) {
-        table.status = "AVAILABLE";
-        await table.save();
-        console.log('Table status updated to AVAILABLE');
+        // Check if it's a merged table
+        if (table.tableNumber && table.tableNumber.startsWith('MG_T')) {
+          // Delete merged table and restore original tables
+          const originalTableIds = table.mergedWith || [];
+          for (const tableId of originalTableIds) {
+            const originalTable = await TableModel.findById(tableId);
+            if (originalTable) {
+              originalTable.status = 'AVAILABLE';
+              await originalTable.save();
+            }
+          }
+          await TableModel.findByIdAndDelete(table._id);
+          console.log('Merged table deleted and original tables restored to AVAILABLE');
+        } else {
+          // Regular table - just set to available
+          table.status = "AVAILABLE";
+          await table.save();
+          console.log('Table status updated to AVAILABLE');
+        }
       }
     }
 
@@ -500,13 +525,30 @@ const processPayment = async (req, res) => {
 
     await order.save();
 
-    // Update table status to maintenance if order has a table
+    // Update table status when payment is processed
     if (order.tableId) {
       const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
       const table = await TableModel.findById(order.tableId);
       if (table) {
-        table.status = 'MAINTENANCE';
-        await table.save();
+        // Check if it's a merged table
+        if (table.tableNumber && table.tableNumber.startsWith('MG_T')) {
+          // Delete merged table and restore original tables
+          const originalTableIds = table.mergedWith || [];
+          for (const tableId of originalTableIds) {
+            const originalTable = await TableModel.findById(tableId);
+            if (originalTable) {
+              originalTable.status = 'AVAILABLE';
+              await originalTable.save();
+            }
+          }
+          await TableModel.findByIdAndDelete(table._id);
+          console.log('Merged table deleted and original tables restored after payment');
+        } else {
+          // Regular table - set to available
+          table.status = 'AVAILABLE';
+          await table.save();
+          console.log('Table status updated to AVAILABLE after payment');
+        }
       }
     }
 
