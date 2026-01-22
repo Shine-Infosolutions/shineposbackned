@@ -1,3 +1,5 @@
+const cloudinary = require('../config/cloudinary');
+
 const createMenuItem = async (req, res) => {
     try {
         console.log('req.tenantModels:', req.tenantModels);
@@ -100,10 +102,43 @@ const deleteMenuItem = async (req, res) => {
     }
 };
 
+const uploadMenuMedia = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const isVideo = req.file.mimetype.startsWith('video/');
+        
+        const result = await new Promise((resolve, reject) => {
+            cloudinary.uploader.upload_stream(
+                {
+                    resource_type: isVideo ? 'video' : 'image',
+                    folder: `pos-shine/${req.tenantId}/menu-items`,
+                },
+                (error, result) => {
+                    if (error) reject(error);
+                    else resolve(result);
+                }
+            ).end(req.file.buffer);
+        });
+
+        res.json({
+            success: true,
+            url: result.secure_url,
+            publicId: result.public_id,
+            type: isVideo ? 'video' : 'image'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     createMenuItem,
     getMenuItems,
     getMenuItemById,
     updateMenuItem,
-    deleteMenuItem
+    deleteMenuItem,
+    uploadMenuMedia
 };

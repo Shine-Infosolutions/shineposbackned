@@ -2,16 +2,21 @@ const express = require('express');
 const auth = require('../middleware/auth');
 const checkSubscription = require('../middleware/checkSubscription');
 const tenantMiddleware = require('../middleware/tenant');
+const upload = require('../config/multer');
 const { activityLogger } = require('../middleware/activityLogger');
 const {
     createMenuItem,
     getMenuItems,
     getMenuItemById,
     updateMenuItem,
-    deleteMenuItem
+    deleteMenuItem,
+    uploadMenuMedia
 } = require('../controllers/menuItemController');
 
 const router = express.Router();
+
+// Upload media for menu item
+router.post('/upload-media', auth(['RESTAURANT_ADMIN']), checkSubscription, tenantMiddleware, upload.single('file'), uploadMenuMedia);
 
 // Create new menu item
 router.post('/create/menu-item', auth(['RESTAURANT_ADMIN']), checkSubscription, tenantMiddleware, activityLogger('MenuItem'), createMenuItem);

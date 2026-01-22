@@ -56,6 +56,14 @@ const createMenuSchema = () => new mongoose.Schema({
     type: String,
     required: true
   },
+  image: {
+    url: String,
+    publicId: String
+  },
+  video: {
+    url: String,
+    publicId: String
+  },
   isAvailable: {
     type: Boolean,
     default: true
