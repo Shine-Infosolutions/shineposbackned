@@ -266,12 +266,15 @@ const mergeTables = async (req, res) => {
     }
 };
 
-const transferAndMerge = async (req, res) => {
+const getReplacementOptions = async (req, res) => {
     try {
-        const { brokenTableId } = req.body;
+        const { brokenTableId } = req.params;
+        
+        if (!mongoose.Types.ObjectId.isValid(brokenTableId)) {
+            return res.status(400).json({ error: 'Invalid brokenTableId format' });
+        }
+        
         const Table = TenantModelFactory.getTableModel(req.user.restaurantSlug);
-        const Order = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
-        const KOT = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
         
         const brokenTable = await Table.findById(brokenTableId);
         if (!brokenTable) {
@@ -288,35 +291,83 @@ const transferAndMerge = async (req, res) => {
             return res.status(400).json({ error: 'Table is not part of any active merged group' });
         }
         
-        const replacementTable = await Table.findOne({
+        const replacementOptions = await Table.find({
             status: 'AVAILABLE',
             isActive: true,
             capacity: { $gte: Math.floor(brokenTable.capacity * 0.8) },
             _id: { $nin: mergedTable.mergedWith },
             tableNumber: { $not: /^MG_T\d+$/ }
-        }).sort({ capacity: 1 });
+        }).sort({ capacity: 1 }).limit(5);
         
-        if (!replacementTable) {
-            return res.status(400).json({ error: 'No suitable replacement table available' });
+        if (replacementOptions.length === 0) {
+            return res.status(400).json({ error: 'No suitable replacement tables available' });
+        }
+        
+        res.json({
+            brokenTable: { id: brokenTable._id, number: brokenTable.tableNumber, capacity: brokenTable.capacity },
+            mergedTable: { id: mergedTable._id, number: mergedTable.tableNumber },
+            replacementOptions: replacementOptions.map(table => ({
+                id: table._id,
+                number: table.tableNumber,
+                capacity: table.capacity,
+                location: table.location
+            }))
+        });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get replacement options' });
+    }
+};
+
+const transferAndMerge = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+    
+    try {
+        const { brokenTableId, replacementTableId } = req.body;
+        
+        if (!brokenTableId || !replacementTableId) {
+            return res.status(400).json({ error: 'brokenTableId and replacementTableId are required' });
+        }
+        
+        if (!mongoose.Types.ObjectId.isValid(brokenTableId) || !mongoose.Types.ObjectId.isValid(replacementTableId)) {
+            return res.status(400).json({ error: 'Invalid table ID format' });
+        }
+        
+        const Table = TenantModelFactory.getTableModel(req.user.restaurantSlug);
+        const Order = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+        const KOT = TenantModelFactory.getKOTModel(req.user.restaurantSlug);
+        
+        const brokenTable = await Table.findById(brokenTableId).session(session);
+        if (!brokenTable) {
+            await session.abortTransaction();
+            return res.status(404).json({ error: 'Broken table not found' });
+        }
+        
+        const mergedTable = await Table.findOne({ 
+            mergedWith: brokenTableId,
+            tableNumber: /^MG_T\d+$/,
+            status: { $ne: 'MAINTENANCE' }
+        }).session(session);
+        
+        if (!mergedTable) {
+            await session.abortTransaction();
+            return res.status(400).json({ error: 'Table is not part of any active merged group' });
+        }
+        
+        const replacementTable = await Table.findById(replacementTableId).session(session);
+        if (!replacementTable || replacementTable.status !== 'AVAILABLE') {
+            await session.abortTransaction();
+            return res.status(400).json({ error: 'Invalid replacement table' });
         }
         
         const newMergedWith = mergedTable.mergedWith.map(id => 
             id.toString() === brokenTableId ? replacementTable._id : id
         );
         
-        const newTables = await Table.find({ _id: { $in: newMergedWith } });
+        const newTables = await Table.find({ _id: { $in: newMergedWith } }).session(session);
         const newTotalCapacity = newTables.reduce((sum, t) => sum + t.capacity, 0);
         
-        const lastMergedTable = await Table.findOne({ 
-            tableNumber: /^MG_T\d+$/ 
-        }).sort({ tableNumber: -1 });
-        
-        let newMergeNumber = 1;
-        if (lastMergedTable) {
-            const lastNumber = parseInt(lastMergedTable.tableNumber.replace('MG_T', ''));
-            newMergeNumber = lastNumber + 1;
-        }
-        const newMergedTableNumber = `MG_T${String(newMergeNumber).padStart(2, '0')}`;
+        const newMergedTableNumber = `MG_T${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
         
         const newMergedTable = new Table({
             tableNumber: newMergedTableNumber,
@@ -326,18 +377,18 @@ const transferAndMerge = async (req, res) => {
             mergedWith: newMergedWith,
             mergedGuestCount: mergedTable.mergedGuestCount
         });
-        const savedNewMergedTable = await newMergedTable.save();
+        const savedNewMergedTable = await newMergedTable.save({ session });
         
         const activeOrders = await Order.find({
             tableId: mergedTable._id,
             status: { $nin: ['COMPLETE', 'CANCELLED'] }
-        });
+        }).session(session);
         
-        for (const order of activeOrders) {
-            order.tableId = savedNewMergedTable._id;
-            order.tableNumber = savedNewMergedTable.tableNumber;
-            await order.save();
-        }
+        await Order.updateMany(
+            { _id: { $in: activeOrders.map(o => o._id) } },
+            { tableId: savedNewMergedTable._id, tableNumber: savedNewMergedTable.tableNumber },
+            { session }
+        );
         
         await KOT.updateMany(
             { 
@@ -349,27 +400,24 @@ const transferAndMerge = async (req, res) => {
             { 
                 tableId: savedNewMergedTable._id,
                 tableNumber: savedNewMergedTable.tableNumber 
-            }
+            },
+            { session }
         );
         
-        brokenTable.status = 'MAINTENANCE';
-        await brokenTable.save();
+        await Table.updateMany(
+            { _id: { $in: [brokenTableId, mergedTable._id] } },
+            { status: 'MAINTENANCE' },
+            { session }
+        );
         
-        mergedTable.status = 'MAINTENANCE';
-        await mergedTable.save();
+        const tableIdsToUpdate = newMergedWith.filter(id => id.toString() !== replacementTable._id.toString());
+        await Table.updateMany(
+            { _id: { $in: [...tableIdsToUpdate, replacementTableId] } },
+            { status: 'OCCUPIED' },
+            { session }
+        );
         
-        replacementTable.status = 'OCCUPIED';
-        await replacementTable.save();
-        
-        for (const tableId of newMergedWith) {
-            if (tableId.toString() !== replacementTable._id.toString()) {
-                const table = await Table.findById(tableId);
-                if (table) {
-                    table.status = 'OCCUPIED';
-                    await table.save();
-                }
-            }
-        }
+        await session.commitTransaction();
         
         res.json({
             message: 'Merged table maintenance completed successfully',
@@ -381,7 +429,10 @@ const transferAndMerge = async (req, res) => {
         });
         
     } catch (error) {
+        await session.abortTransaction();
         res.status(500).json({ error: 'Failed to handle merged table maintenance' });
+    } finally {
+        session.endSession();
     }
 };
 
@@ -395,6 +446,7 @@ module.exports = {
     getAvailableTables,
     transferTable,
     mergeTables,
+    getReplacementOptions,
     transferAndMerge
 };
 

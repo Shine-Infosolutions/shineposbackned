@@ -13,6 +13,7 @@ const {
     getAvailableTables,
     transferTable,
     mergeTables,
+    getReplacementOptions,
     transferAndMerge
 } = require('../controllers/tableController');
 
@@ -47,8 +48,11 @@ router.post('/tables/merge', auth(['RESTAURANT_ADMIN', 'MANAGER', 'WAITER']), te
     body('guestCount').isInt({ min: 1 }).withMessage('Valid guest count required')
 ], mergeTables);
 
+router.get('/tables/replacement-options/:brokenTableId', auth(['RESTAURANT_ADMIN', 'MANAGER']), tenantMiddleware, activityLogger('Get Replacement Options'), getReplacementOptions);
+
 router.post('/tables/transfer-and-merge', auth(['RESTAURANT_ADMIN', 'MANAGER']), tenantMiddleware, activityLogger('Transfer and Merge'), [
-    body('brokenTableId').isMongoId().withMessage('Valid broken table ID is required')
+    body('brokenTableId').isMongoId().withMessage('Valid broken table ID is required'),
+    body('replacementTableId').isMongoId().withMessage('Valid replacement table ID is required')
 ], transferAndMerge);
 
 module.exports = router;
