@@ -100,7 +100,27 @@ const updateTableStatus = async (req, res) => {
         table.status = status;
         const savedTable = await table.save();
         
-        res.json({ message: 'Table status updated successfully', table: savedTable });
+        let responseData = { message: 'Table status updated successfully', table: savedTable };
+        
+        // Check if table marked as MAINTENANCE is part of merged group
+        if (status === 'MAINTENANCE') {
+            const mergedTable = await Table.findOne({ 
+                mergedWith: id,
+                tableNumber: /^MG_T\d+$/,
+                status: { $ne: 'MAINTENANCE' }
+            });
+            
+            if (mergedTable) {
+                responseData.mergedGroupAlert = {
+                    message: 'Table is part of merged group - replacement needed',
+                    mergedTableId: mergedTable._id,
+                    mergedTableNumber: mergedTable.tableNumber,
+                    requiresReplacement: true
+                };
+            }
+        }
+        
+        res.json(responseData);
     } catch (error) {
         res.status(500).json({ error: 'Failed to update table status' });
     }
