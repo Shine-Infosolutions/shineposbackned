@@ -1,10 +1,15 @@
 const express = require('express');
 const router = express.Router();
-const { handleZomatoWebhook } = require('../controllers/zomatoWebhookController');
+const { getItems, postItems, updateCategoryStatus, updateItemStatus } = require('../controllers/zomatoWebhookController');
 
-router.get('/webhook/zomato/:resId/items', (req, res) => {
-  res.json({ message: 'Webhook endpoint ready', resId: req.params.resId });
-});
-router.post('/webhook/zomato/items/:resId', handleZomatoWebhook);
+// Items endpoints
+router.get('/:resId/items', getItems);
+router.post('/:resId/items', postItems);
+
+// Category status
+router.post('/:resId/categories/status', updateCategoryStatus);
+
+// Item status
+router.post('/:resId/items/status', updateItemStatus);
 
 module.exports = router;

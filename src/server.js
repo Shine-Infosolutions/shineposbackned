@@ -91,7 +91,7 @@ app.use('/api/kot', kotRoutes);
 app.use('/api/table', tableRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/zomato', zomatoSyncRoutes);
-app.use('/api', zomatoWebhookRoutes);
+app.use('/api/webhook/zomato', zomatoWebhookRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/:restaurantSlug/orders', orderRoutes);
 

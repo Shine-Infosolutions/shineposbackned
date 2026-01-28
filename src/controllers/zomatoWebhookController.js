@@ -157,4 +157,20 @@ const handleZomatoWebhook = async (req, res) => {
   }
 };
 
-module.exports = { handleZomatoWebhook };
+const getItems = async (req, res) => {
+  res.json({ message: 'GET items endpoint', resId: req.params.resId });
+};
+
+const postItems = async (req, res) => {
+  res.json({ message: 'POST items endpoint', resId: req.params.resId, body: req.body });
+};
+
+const updateCategoryStatus = async (req, res) => {
+  res.json({ message: 'Category status updated', body: req.body });
+};
+
+const updateItemStatus = async (req, res) => {
+  res.json({ message: 'Item status updated', body: req.body });
+};
+
+module.exports = { handleZomatoWebhook, getItems, postItems, updateCategoryStatus, updateItemStatus };
