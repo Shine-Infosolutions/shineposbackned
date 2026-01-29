@@ -13,14 +13,23 @@ router.post('/:restaurantId/orders/history', async (req, res) => {
       orderData
     });
 
-    // Validate restaurant exists
+    // Find restaurant by ID or slug
     const Restaurant = require('../models/Restaurant');
-    const restaurant = await Restaurant.findById(restaurantId);
+    let restaurant;
+    
+    // Check if it's a valid ObjectId
+    if (restaurantId.match(/^[0-9a-fA-F]{24}$/)) {
+      restaurant = await Restaurant.findById(restaurantId);
+    } else {
+      // Treat as slug
+      restaurant = await Restaurant.findOne({ slug: restaurantId });
+    }
     
     if (!restaurant) {
       return res.status(404).json({ 
         success: false, 
-        error: 'Restaurant not found' 
+        error: 'Restaurant not found',
+        hint: 'Use restaurant MongoDB ID or slug'
       });
     }
 
