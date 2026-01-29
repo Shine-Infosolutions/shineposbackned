@@ -978,6 +978,103 @@ const getOrder = async (req, res) => {
 };
 
 /* =====================================================
+   WEBHOOK: GET ORDER HISTORY BY RESTAURANT ID
+===================================================== */
+const getOrderHistoryWebhook = async (req, res) => {
+  try {
+    const { restaurant_id } = req.params;
+    
+    // Find restaurant by ID
+    const restaurant = await Restaurant.findById(restaurant_id);
+    if (!restaurant) {
+      return res.status(404).json({ error: "Restaurant not found" });
+    }
+    
+    const OrderModel = TenantModelFactory.getOrderModel(restaurant.slug);
+    
+    // Get all orders with full details
+    const orders = await OrderModel.find()
+      .select('orderNumber items extraItems subtotal discount totalAmount customerName customerPhone tableId tableNumber status priority createdAt updatedAt paymentDetails')
+      .lean()
+      .sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      restaurant: {
+        id: restaurant._id,
+        name: restaurant.name,
+        slug: restaurant.slug
+      },
+      totalOrders: orders.length,
+      orders
+    });
+  } catch (error) {
+    console.error("Get order history webhook error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to fetch order history",
+      details: error.message 
+    });
+  }
+};
+
+/* =====================================================
+   WEBHOOK: UPDATE ITEM STATUS BY RESTAURANT ID
+===================================================== */
+const updateItemStatusWebhook = async (req, res) => {
+  try {
+    const { restaurant_id } = req.params;
+    const { orderId, itemIndex, status } = req.body;
+    
+    const allowedStatuses = ["PENDING", "PREPARING", "READY", "SERVED"];
+    if (!allowedStatuses.includes(status)) {
+      return res.status(400).json({ error: "Invalid item status" });
+    }
+    
+    // Find restaurant by ID
+    const restaurant = await Restaurant.findById(restaurant_id);
+    if (!restaurant) {
+      return res.status(404).json({ error: "Restaurant not found" });
+    }
+    
+    const OrderModel = TenantModelFactory.getOrderModel(restaurant.slug);
+    const KOTModel = TenantModelFactory.getKOTModel(restaurant.slug);
+    
+    const order = await OrderModel.findById(orderId);
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+    
+    if (!order.items[itemIndex]) {
+      return res.status(404).json({ error: "Item not found" });
+    }
+    
+    order.items[itemIndex].status = status;
+    await order.save();
+    
+    // Update KOT
+    const kot = await KOTModel.findOne({ orderId });
+    if (kot && kot.items[itemIndex]) {
+      kot.items[itemIndex].status = status;
+      await kot.save();
+    }
+    
+    res.json({
+      success: true,
+      message: "Item status updated successfully",
+      order
+    });
+  } catch (error) {
+    console.error("Update item status webhook error:", error);
+    res.status(500).json({ 
+      success: false,
+      error: "Failed to update item status",
+      details: error.message 
+    });
+  }
+};
+
+/* =====================================================
    EXPORTS
 ===================================================== */
 module.exports = {
@@ -994,4 +1091,6 @@ module.exports = {
   applyDiscount,
   getKOTData,
   printKOT,
+  getOrderHistoryWebhook,
+  updateItemStatusWebhook,
 };
