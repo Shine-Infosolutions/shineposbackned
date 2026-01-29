@@ -78,6 +78,33 @@ router.post('/:restaurantId/orders/history', async (req, res) => {
 });
 
 // Test endpoint to verify webhook is working
+router.get('/:restaurantId/orders/history', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Webhook endpoint is active',
+    restaurantId: req.params.restaurantId,
+    method: 'Use POST to send order data',
+    endpoint: `POST /api/webhooks/${req.params.restaurantId}/orders/history`,
+    expectedPayload: {
+      order_id: 'string',
+      customer_name: 'string',
+      customer_phone: 'string',
+      items: [
+        {
+          name: 'string',
+          quantity: 'number',
+          price: 'number'
+        }
+      ],
+      total_amount: 'number',
+      status: 'PENDING | CONFIRMED | PREPARING | READY | DELIVERED',
+      payment_method: 'CASH | ONLINE | CARD',
+      delivery_address: 'string',
+      special_instructions: 'string'
+    }
+  });
+});
+
 router.get('/:restaurantId/orders/history/test', (req, res) => {
   res.json({
     success: true,
