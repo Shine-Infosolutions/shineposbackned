@@ -2,10 +2,10 @@ const TenantModelFactory = require('../models/TenantModelFactory');
 
 const tenantMiddleware = (req, res, next) => {
   try {
-    const restaurantSlug = req.user.restaurantSlug;
+    const restaurantSlug = req.params.restaurantSlug || req.user?.restaurantSlug;
     
     if (!restaurantSlug) {
-      return res.status(400).json({ error: 'Restaurant slug not found in token' });
+      return res.status(400).json({ error: 'Restaurant slug not found' });
     }
 
     req.tenantModels = {

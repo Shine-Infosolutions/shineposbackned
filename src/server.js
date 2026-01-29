@@ -35,6 +35,7 @@ const activityLogRoutes = require('./routes/activityLog');
 const kotRoutes = require('./routes/kot');
 const tableRoutes = require('./routes/table');
 const uploadRoutes = require('./routes/upload');
+const digitalMenuRoutes = require('./routes/digitalMenu');
 const zomatoSyncRoutes = require('./routes/zomatoSync');
 const zomatoWebhookRoutes = require('./routes/zomatoWebhook');
 const systemController = require('./controllers/systemController');
