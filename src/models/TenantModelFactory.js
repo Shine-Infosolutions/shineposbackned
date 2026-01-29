@@ -304,6 +304,73 @@ const createStaffSchema = () => new mongoose.Schema({
   timestamps: true
 });
 
+// Attendance Schema for tenant-specific collections
+const createAttendanceSchema = () => new mongoose.Schema({
+  staffId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'staff',
+    required: true
+  },
+  date: {
+    type: Date,
+    required: true,
+    validate: {
+      validator: function(value) {
+        // Prevent future dates (allow current date)
+        const today = new Date();
+        today.setHours(23, 59, 59, 999); // End of today
+        return value <= today;
+      },
+      message: 'Attendance date cannot be in the future'
+    }
+  },
+  checkIn: {
+    type: Date,
+    validate: {
+      validator: function(value) {
+        if (!value) return true; // Optional field
+        // Check-in should be on the same date as attendance date
+        const attendanceDate = new Date(this.date);
+        const checkInDate = new Date(value);
+        return attendanceDate.toDateString() === checkInDate.toDateString();
+      },
+      message: 'Check-in time must be on the same date as attendance date'
+    }
+  },
+  checkOut: {
+    type: Date,
+    validate: {
+      validator: function(value) {
+        if (!value) return true; // Optional field
+        // Check-out should be after check-in
+        if (this.checkIn && value <= this.checkIn) {
+          return false;
+        }
+        return true;
+      },
+      message: 'Check-out time must be after check-in time'
+    }
+  },
+  status: {
+    type: String,
+    enum: ['present', 'absent', 'late', 'half-day', 'on-leave'],
+    default: 'absent'
+  },
+  workingHours: {
+    type: Number,
+    default: 0
+  },
+  location: {
+    type: String
+  },
+  modifiedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'staff'
+  }
+}, {
+  timestamps: true
+});
+
 // Table Schema for tenant-specific collections
 const createTableSchema = () => new mongoose.Schema({
   tableNumber: {
@@ -686,6 +753,18 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getAttendanceModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_attendance`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      const attendanceSchema = createAttendanceSchema();
+      attendanceSchema.index({ staffId: 1, date: 1 }, { unique: true });
+      attendanceSchema.index({ date: 1 });
+      this.models.set(modelKey, connection.model('attendance', attendanceSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getTableModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_tables`;
     if (!this.models.has(modelKey)) {
@@ -719,6 +798,7 @@ class TenantModelFactory {
     this.getKOTModel(restaurantSlug);
     this.getTableModel(restaurantSlug);
     this.getTableBookingModel(restaurantSlug);
+    this.getAttendanceModel(restaurantSlug);
   }
 }
 

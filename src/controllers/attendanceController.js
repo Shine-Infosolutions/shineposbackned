@@ -6,7 +6,7 @@ const checkIn = async (req, res) => {
     const { id } = req.params;
     const { location } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const currentUserId = req.user.id;
+    const currentUserId = req.user.userId || req.user.id;
     
     if (id !== currentUserId && !['RESTAURANT_ADMIN', 'MANAGER'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Can only check in for yourself' });
@@ -69,7 +69,8 @@ const checkIn = async (req, res) => {
     await attendance.save();
     res.json({ message: 'Checked in successfully', checkInTime, status: attendance.status });
   } catch (error) {
-    res.status(500).json({ error: 'Check-in failed' });
+    console.error('Check-in error:', error);
+    res.status(500).json({ error: 'Check-in failed', details: error.message });
   }
 };
 
@@ -77,7 +78,7 @@ const checkOut = async (req, res) => {
   try {
     const { id } = req.params;
     const restaurantSlug = req.user.restaurantSlug;
-    const currentUserId = req.user.id;
+    const currentUserId = req.user.userId || req.user.id;
     
     if (id !== currentUserId && !['RESTAURANT_ADMIN', 'MANAGER'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Can only check out for yourself' });
@@ -122,7 +123,7 @@ const checkOut = async (req, res) => {
 
 const getMyAttendance = async (req, res) => {
   try {
-    const staffId = req.user.id;
+    const staffId = req.user.userId || req.user.id;
     const { month, year } = req.query;
     const restaurantSlug = req.user.restaurantSlug;
     
@@ -132,8 +133,12 @@ const getMyAttendance = async (req, res) => {
     const staff = await StaffModel.findById(staffId);
     if (!staff) return res.status(404).json({ error: 'Staff not found' });
     
-    const startDate = new Date(year || new Date().getFullYear(), (month || new Date().getMonth() + 1) - 1, 1);
-    const endDate = new Date(year || new Date().getFullYear(), month || new Date().getMonth() + 1, 0, 23, 59, 59);
+    const currentDate = new Date();
+    const currentYear = year || currentDate.getFullYear();
+    const currentMonth = month || (currentDate.getMonth() + 1);
+    
+    const startDate = new Date(currentYear, currentMonth - 1, 1);
+    const endDate = new Date(currentYear, currentMonth, 0, 23, 59, 59);
     
     const attendance = await AttendanceModel.find({
       staffId,
@@ -142,10 +147,16 @@ const getMyAttendance = async (req, res) => {
     
     const expectedShifts = generateExpectedShifts(staff, startDate, endDate);
     
+    // Create a map of actual attendance by date
+    const attendanceMap = new Map();
+    attendance.forEach(record => {
+      const dateKey = new Date(record.date).toDateString();
+      attendanceMap.set(dateKey, record);
+    });
+    
     const attendanceWithShifts = expectedShifts.map(expectedShift => {
-      const actualAttendance = attendance.find(a => 
-        new Date(a.date).toDateString() === new Date(expectedShift.date).toDateString()
-      );
+      const dateKey = new Date(expectedShift.date).toDateString();
+      const actualAttendance = attendanceMap.get(dateKey);
       
       return {
         date: expectedShift.date,
@@ -164,6 +175,27 @@ const getMyAttendance = async (req, res) => {
           workingHours: 0
         }
       };
+    });
+    
+    // Add any attendance records that don't have expected shifts
+    attendance.forEach(record => {
+      const dateKey = new Date(record.date).toDateString();
+      const hasExpectedShift = expectedShifts.some(shift => 
+        new Date(shift.date).toDateString() === dateKey
+      );
+      
+      if (!hasExpectedShift) {
+        attendanceWithShifts.push({
+          date: record.date,
+          expectedShift: null,
+          actual: {
+            checkIn: record.checkIn,
+            checkOut: record.checkOut,
+            status: record.status,
+            workingHours: record.workingHours
+          }
+        });
+      }
     });
     
     const summary = {
@@ -225,7 +257,7 @@ const markAttendance = async (req, res) => {
     const { id } = req.params;
     const { date, status, checkIn, checkOut } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const currentUserId = req.user.id;
+    const currentUserId = req.user.userId || req.user.id;
     
     // Prevent future date marking (except for admins)
     const targetDate = AttendanceUtils.normalizeDate(date);

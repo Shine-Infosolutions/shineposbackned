@@ -13,6 +13,8 @@ const {
   updateOrderPriority,
   processPayment,
   applyDiscount,
+  getOrderHistoryWebhook,
+  updateItemStatusWebhook,
 } = require("../controllers/orderController");
 const { fixExtraItemsField } = require("../controllers/fixController");
 const auth = require("../middleware/auth");
@@ -221,4 +223,17 @@ router.patch(
   processPayment,
 );
 
+const router2 = express.Router();
+router2.get("/webhook/:restaurant_id/history", getOrderHistoryWebhook);
+router2.post(
+  "/webhook/:restaurant_id/items/status",
+  [
+    body("orderId").isMongoId().withMessage("Invalid order ID"),
+    body("itemIndex").isInt({ min: 0 }).withMessage("Invalid item index"),
+    body("status").isIn(["PENDING", "PREPARING", "READY", "SERVED"]).withMessage("Invalid status"),
+  ],
+  updateItemStatusWebhook
+);
+
 module.exports = router;
+module.exports.webhookRouter = router2;
