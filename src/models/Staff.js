@@ -40,27 +40,7 @@ const staffSchema = new mongoose.Schema({
   workingHours: {
     standardHours: { type: Number, default: 8 }
   },
-  shiftSchedule: {
-    type: {
-      type: String,
-      enum: ['fixed', 'rotating', 'flexible'],
-      default: 'fixed'
-    },
-    fixedShift: {
-      startTime: String, // "09:00"
-      endTime: String,   // "17:00"
-      workingDays: [{
-        type: String,
-        enum: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-      }]
-    },
-    rotatingShifts: [{
-      name: String,
-      startTime: String,
-      endTime: String,
-      workingDays: [String]
-    }]
-  },
+  shiftSchedule: mongoose.Schema.Types.Mixed,
   shifts: [{
     date: Date,
     startTime: String,

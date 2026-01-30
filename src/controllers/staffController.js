@@ -3,8 +3,12 @@ const TenantModelFactory = require('../models/TenantModelFactory');
 
 const createStaff = async (req, res) => {
   try {
-    const { email, password, name, role, permissions, phone, hourlyRate, overtimeRate } = req.body;
+    const { email, password, name, role, permissions, phone, hourlyRate, overtimeRate, shiftSchedule } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
+    
+    console.log('=== CREATE STAFF DEBUG ===');
+    console.log('Request body:', req.body);
+    console.log('Extracted shiftSchedule:', shiftSchedule);
     
     if (!restaurantSlug) {
       return res.status(400).json({ error: 'Restaurant slug is required' });
@@ -20,7 +24,7 @@ const createStaff = async (req, res) => {
     
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const staff = new StaffModel({
+    const staffData = {
       email,
       password: hashedPassword,
       name,
@@ -28,13 +32,36 @@ const createStaff = async (req, res) => {
       permissions: permissions || [],
       phone,
       hourlyRate: hourlyRate || 0,
-      overtimeRate: overtimeRate || 0
-    });
-
+      overtimeRate: overtimeRate || 0,
+      shiftSchedule: shiftSchedule || {
+        shiftType: 'fixed',
+        fixedShift: {
+          startTime: '09:00',
+          endTime: '17:00',
+          workingDays: ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']
+        }
+      }
+    };
+    
+    console.log('Staff data to save:', JSON.stringify(staffData, null, 2));
+    
+    const staff = new StaffModel(staffData);
     await staff.save();
     
-    const { password: _, ...staffData } = staff.toObject();
-    res.status(201).json({ message: 'Staff member created successfully', staff: staffData });
+    // Force save shiftSchedule using MongoDB collection directly
+    if (staffData.shiftSchedule) {
+      await StaffModel.collection.updateOne(
+        { _id: staff._id },
+        { $set: { shiftSchedule: staffData.shiftSchedule } }
+      );
+    }
+    
+    const finalStaff = await StaffModel.findById(staff._id);
+    
+    console.log('Saved staff (full):', JSON.stringify(staff.toObject(), null, 2));
+    
+    const { password: _, ...responseData } = staff.toObject();
+    res.status(201).json({ message: 'Staff member created successfully', staff: responseData });
   } catch (error) {
     console.error('Create staff error:', error);
     console.error('Error stack:', error.stack);
@@ -49,6 +76,8 @@ const getStaff = async (req, res) => {
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
     const staff = await StaffModel.find({ isActive: true }).select('-password').sort({ createdAt: -1 });
+    console.log('=== GET STAFF DEBUG ===');
+    console.log('Staff with shifts:', staff.map(s => ({ name: s.name, shiftSchedule: s.shiftSchedule })));
     res.json({ staff });
   } catch (error) {
     console.error('Get staff error:', error);
@@ -62,6 +91,10 @@ const updateStaff = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
+    console.log('=== UPDATE STAFF DEBUG ===');
+    console.log('Request body:', req.body);
+    console.log('Staff ID:', id);
+    
     const staff = await StaffModel.findById(id);
     if (!staff) {
       return res.status(404).json({ error: 'Staff member not found' });
@@ -72,10 +105,26 @@ const updateStaff = async (req, res) => {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
     
+    console.log('Update data:', updateData);
+    console.log('Before update - staff shiftSchedule:', staff.shiftSchedule);
+    
     Object.assign(staff, updateData);
     await staff.save();
     
-    const { password: _, ...staffData } = staff.toObject();
+    // Force save shiftSchedule using MongoDB collection directly
+    if (updateData.shiftSchedule) {
+      await StaffModel.collection.updateOne(
+        { _id: staff._id },
+        { $set: { shiftSchedule: updateData.shiftSchedule } }
+      );
+    }
+    
+    const finalStaff = await StaffModel.findById(staff._id);
+    
+    console.log('After update - staff shiftSchedule:', finalStaff.shiftSchedule);
+    console.log('Updated staff:', finalStaff.toObject());
+    
+    const { password: _, ...staffData } = finalStaff.toObject();
     res.json({ message: 'Staff member updated successfully', staff: staffData });
   } catch (error) {
     console.error('Update staff error:', error);

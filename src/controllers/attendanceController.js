@@ -239,7 +239,7 @@ const getTodayAttendance = async (req, res) => {
     
     const today = AttendanceUtils.getCurrentDate();
     const attendance = await AttendanceModel.find({ date: today })
-      .populate('staffId', 'name role')
+      .populate('staffId', 'name role shiftSchedule')
       .sort({ checkIn: -1 });
     
     const allStaff = await StaffModel.find({ isActive: true }, 'name role');
