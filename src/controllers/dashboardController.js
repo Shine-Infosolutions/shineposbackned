@@ -39,10 +39,22 @@ const getDashboardStats = async (req, res) => {
     const avgOrderValue = filteredOrders.length > 0 ? revenue / filteredOrders.length : 0;
     const pendingOrders = allOrders.filter(o => o.status === 'PENDING' || o.status === 'ORDER_ACCEPTED').length;
     const preparingOrders = allOrders.filter(o => o.status === 'PREPARING' || o.status === 'READY' || o.status === 'SERVED').length;
-    const completedOrders = allOrders.filter(o => o.status === 'COMPLETE').length;
+    const completedOrders = allOrders.filter(o => o.status === 'DELIVERED').length;
+    const paidOrders = allOrders.filter(o => o.status === 'PAID').length;
 
-    // Recent orders (last 10)
+    // Calculate payment statistics
+    const ordersWithPayment = filteredOrders.filter(o => o.paymentDetails && o.paymentDetails.method);
+    const cashPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'cash').reduce((sum, o) => sum + o.totalAmount, 0);
+    const cardPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'card').reduce((sum, o) => sum + o.totalAmount, 0);
+    const upiPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'upi').reduce((sum, o) => sum + o.totalAmount, 0);
+    const totalPayments = cashPayments + cardPayments + upiPayments;
+    const cashPercentage = totalPayments > 0 ? Math.round((cashPayments / totalPayments) * 100) : 0;
+    const cardPercentage = totalPayments > 0 ? Math.round((cardPayments / totalPayments) * 100) : 0;
+    const upiPercentage = totalPayments > 0 ? Math.round((upiPayments / totalPayments) * 100) : 0;
+
+    // Recent orders (last 10, excluding PAID orders)
     const recentOrders = allOrders
+      .filter(order => order.status !== 'PAID')
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
       .slice(0, 10)
       .map(order => ({
@@ -67,7 +79,14 @@ const getDashboardStats = async (req, res) => {
         pendingOrders,
         preparingOrders,
         completedOrders,
-        customerSatisfaction: 4.8
+        paidOrders,
+        customerSatisfaction: 4.8,
+        cashPayments,
+        cardPayments,
+        upiPayments,
+        cashPercentage,
+        cardPercentage,
+        upiPercentage
       },
       recentOrders
     });
