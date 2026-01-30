@@ -1,6 +1,10 @@
 const TenantModelFactory = require('../models/TenantModelFactory');
 
-const handleZomatoWebhook = async (req, res) => {
+const getItems = async (req, res) => {
+  res.json({ message: 'GET items endpoint', resId: req.params.resId });
+};
+
+const postItems = async (req, res) => {
   try {
     const { resId } = req.params;
     const { restaurantSlug, items } = req.body;
@@ -15,7 +19,6 @@ const handleZomatoWebhook = async (req, res) => {
 
     const stats = { categories: 0, items: 0, variations: 0 };
 
-    // Build category to items mapping
     const categoryItemsMap = {};
     for (const catWrapper of items.categoryWrappers) {
       const catId = catWrapper.category.categoryId;
@@ -28,7 +31,6 @@ const handleZomatoWebhook = async (req, res) => {
       }
     }
 
-    // Sync categories
     const categoryMap = {};
     for (const catWrapper of items.categoryWrappers) {
       const cat = catWrapper.category;
@@ -55,7 +57,6 @@ const handleZomatoWebhook = async (req, res) => {
       stats.categories++;
     }
 
-    // Sync items and variations
     for (const itemWrapper of items.catalogueWrappers) {
       const item = itemWrapper.catalogue;
       
@@ -146,15 +147,19 @@ const handleZomatoWebhook = async (req, res) => {
       stats.items++;
     }
 
-    res.json({ 
-      success: true,
-      message: 'Webhook processed successfully',
-      stats
-    });
+    res.json({ success: true, message: 'Items synced successfully', stats });
   } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: 'Webhook processing failed' });
+    console.error('POST items error:', error);
+    res.status(500).json({ error: 'Failed to sync items' });
   }
 };
 
-module.exports = { handleZomatoWebhook };
+const updateCategoryStatus = async (req, res) => {
+  res.json({ message: 'Category status updated', body: req.body });
+};
+
+const updateItemStatus = async (req, res) => {
+  res.json({ message: 'Item status updated', body: req.body });
+};
+
+module.exports = { getItems, postItems, updateCategoryStatus, updateItemStatus };

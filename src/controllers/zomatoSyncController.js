@@ -10,8 +10,13 @@ const syncZomatoMenu = async (req, res) => {
       return res.status(400).json({ error: 'Restaurant slug not found' });
     }
 
-    // Fetch from Dyno API
+    // Check if Dyno API is available
     const dynoApiUrl = process.env.DYNO_API_URL || 'http://localhost:32567';
+    if (!process.env.DYNO_API_URL && process.env.NODE_ENV === 'production') {
+      return res.status(503).json({ error: 'Sync not available in production. Use webhook instead.' });
+    }
+
+    // Fetch from Dyno API
     const dynoResponse = await axios.get(`${dynoApiUrl}/api/v1/zomato/items/${resId}`);
     const zomatoData = dynoResponse.data.items;
 
