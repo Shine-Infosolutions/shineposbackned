@@ -129,7 +129,7 @@ const getRestaurantAnalytics = async (req, res) => {
 const updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { restaurantName, slug } = req.body;
+    const { restaurantName, slug, metadata } = req.body;
     
     const restaurant = await Restaurant.findById(id);
     if (!restaurant) {
@@ -148,6 +148,7 @@ const updateRestaurant = async (req, res) => {
       }
       restaurant.slug = slugValue;
     }
+    if (metadata) restaurant.metadata = metadata;
     
     await restaurant.save();
 

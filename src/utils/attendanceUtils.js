@@ -18,21 +18,41 @@ class AttendanceUtils {
   }
 
   static determineStatus(checkIn, checkOut, scheduledStart, standardHours = 8) {
+    // Manual status override takes precedence (handled in controller)
+    
+    // No check-in = absent
     if (!checkIn) return 'absent';
     
+    // Check if late (more than 15 min after scheduled start)
+    let isLate = false;
     if (scheduledStart) {
       const lateThreshold = new Date(scheduledStart.getTime() + 15 * 60 * 1000);
       if (new Date(checkIn) > lateThreshold) {
-        return 'late';
+        isLate = true;
       }
     }
     
+    // If checked out, determine final status based on hours worked
     if (checkOut) {
       const workingHours = this.calculateWorkingHours(checkIn, checkOut);
-      if (workingHours < standardHours / 2) return 'half-day';
+      
+      // Less than half standard hours = half-day (regardless of late)
+      if (workingHours < standardHours / 2) {
+        return 'half-day';
+      }
+      
+      // Worked sufficient hours but was late
+      if (isLate) {
+        return 'late';
+      }
+      
+      // Worked sufficient hours and on time
+      return 'present';
     }
     
-    return 'present';
+    // Only checked in (no checkout yet)
+    // Return late if applicable, otherwise present
+    return isLate ? 'late' : 'present';
   }
 
   static getScheduledShift(staff, date) {

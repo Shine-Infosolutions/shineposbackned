@@ -35,8 +35,10 @@ const activityLogRoutes = require('./routes/activityLog');
 const kotRoutes = require('./routes/kot');
 const tableRoutes = require('./routes/table');
 const uploadRoutes = require('./routes/upload');
+const dashboardRoutes = require('./routes/dashboard');
+const digitalMenuRoutes = require('./routes/digitalMenu');
 const zomatoSyncRoutes = require('./routes/zomatoSync');
-const zomatoWebhookRoutes = require('./routes/zomatoWebhook');
+const dynoOrderRoutes = require('./routes/dynoOrder');
 const systemController = require('./controllers/systemController');
 const { trackApiMetrics } = systemController;
 
@@ -90,8 +92,9 @@ app.use('/api/activity', activityLogRoutes);
 app.use('/api/kot', kotRoutes);
 app.use('/api/table', tableRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/zomato', zomatoSyncRoutes);
-app.use('/api/webhook/zomato', zomatoWebhookRoutes);
+app.use('/api/dyno', dynoOrderRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/:restaurantSlug/orders', orderRoutes);
 

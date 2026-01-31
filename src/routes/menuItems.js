@@ -10,13 +10,17 @@ const {
     getMenuItemById,
     updateMenuItem,
     deleteMenuItem,
-    uploadMenuMedia
+    uploadMenuMedia,
+    getDigitalMenu
 } = require('../controllers/menuItemController');
 
 const router = express.Router();
 
 // Upload media for menu item
 router.post('/upload-media', auth(['RESTAURANT_ADMIN']), checkSubscription, tenantMiddleware, upload.single('file'), uploadMenuMedia);
+
+// Get digital menu (public endpoint)
+router.get('/digital-menu/:restaurantSlug', tenantMiddleware, getDigitalMenu);
 
 // Create new menu item
 router.post('/create/menu-item', auth(['RESTAURANT_ADMIN']), checkSubscription, tenantMiddleware, activityLogger('MenuItem'), createMenuItem);

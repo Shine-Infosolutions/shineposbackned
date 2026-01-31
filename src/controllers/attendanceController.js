@@ -8,6 +8,11 @@ const checkIn = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId || req.user.id;
     
+    // Prevent RESTAURANT_ADMIN from checking in for themselves
+    if (req.user.role === 'RESTAURANT_ADMIN' && id === currentUserId) {
+      return res.status(403).json({ error: 'Admins do not need to mark attendance' });
+    }
+    
     if (id !== currentUserId && !['RESTAURANT_ADMIN', 'MANAGER'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Can only check in for yourself' });
     }
@@ -79,6 +84,11 @@ const checkOut = async (req, res) => {
     const { id } = req.params;
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId || req.user.id;
+    
+    // Prevent RESTAURANT_ADMIN from checking out for themselves
+    if (req.user.role === 'RESTAURANT_ADMIN' && id === currentUserId) {
+      return res.status(403).json({ error: 'Admins do not need to mark attendance' });
+    }
     
     if (id !== currentUserId && !['RESTAURANT_ADMIN', 'MANAGER'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Can only check out for yourself' });
@@ -202,8 +212,9 @@ const getMyAttendance = async (req, res) => {
       totalScheduledDays: expectedShifts.length,
       presentDays: attendance.filter(a => a.status === 'present').length,
       lateDays: attendance.filter(a => a.status === 'late').length,
+      onLeaveDays: attendance.filter(a => a.status === 'on-leave').length,
       totalWorkedHours: attendance.reduce((sum, a) => sum + (a.workingHours || 0), 0),
-      attendanceRate: ((attendance.filter(a => a.checkIn).length / expectedShifts.length) * 100).toFixed(1)
+      attendanceRate: expectedShifts.length > 0 ? ((attendance.filter(a => a.checkIn).length / expectedShifts.length) * 100).toFixed(1) : '0'
     };
     
     res.json({
@@ -237,13 +248,17 @@ const getTodayAttendance = async (req, res) => {
       !presentStaffIds.includes(staff._id.toString())
     );
     
+    const onLeaveStaff = attendance.filter(a => a.status === 'on-leave');
+    
     res.json({ 
-      present: attendance,
+      present: attendance.filter(a => a.checkIn && a.status !== 'on-leave'),
       absent: absentStaff,
+      onLeave: onLeaveStaff,
       summary: {
         total: allStaff.length,
-        present: attendance.filter(a => a.checkIn).length,
+        present: attendance.filter(a => a.checkIn && a.status !== 'on-leave').length,
         absent: absentStaff.length,
+        onLeave: onLeaveStaff.length,
         checkedOut: attendance.filter(a => a.checkOut).length
       }
     });

@@ -1,4 +1,5 @@
 const cloudinary = require('../config/cloudinary');
+const Restaurant = require('../models/Restaurant');
 
 const createMenuItem = async (req, res) => {
     try {
@@ -144,11 +145,77 @@ const uploadMenuMedia = async (req, res) => {
     }
 };
 
+const getDigitalMenu = async (req, res) => {
+    try {
+        const MenuItem = req.tenantModels.MenuItem;
+        const Category = req.tenantModels.Category;
+        const Restaurant = require('../models/Restaurant');
+        
+        const restaurant = await Restaurant.findOne({ slug: req.params.restaurantSlug, isActive: true });
+        if (!restaurant) {
+            return res.status(404).json({ error: 'Restaurant not found' });
+        }
+        
+        const categories = await Category.find().sort({ name: 1 });
+        const menuData = [];
+        
+        for (const category of categories) {
+            const items = await MenuItem.find({
+                categoryID: category._id
+            })
+            .populate('variation', 'name price')
+            .populate('addon', 'name price')
+            .lean();
+            
+            const formattedItems = items.map(item => ({
+                id: item._id,
+                name: item.itemName,
+                description: item.description || '',
+                image: item.imageUrl || '',
+                video: item.videoUrl || '',
+                foodType: item.foodType,
+                variations: item.variation?.map(v => ({
+                    id: v._id,
+                    name: v.name,
+                    price: v.price
+                })) || [],
+                addons: item.addon?.map(a => ({
+                    id: a._id,
+                    name: a.name,
+                    price: a.price
+                })) || [],
+                timeToPrepare: item.timeToPrepare || 15
+            }));
+            
+            if (formattedItems.length > 0) {
+                menuData.push({
+                    categoryId: category._id,
+                    categoryName: category.name,
+                    items: formattedItems
+                });
+            }
+        }
+        
+        res.json({
+            restaurant: {
+                name: restaurant.name,
+                slug: restaurant.slug,
+                logo: restaurant.logo
+            },
+            menu: menuData
+        });
+    } catch (error) {
+        console.error('Get digital menu error:', error);
+        res.status(500).json({ error: 'Failed to fetch digital menu' });
+    }
+};
+
 module.exports = {
     createMenuItem,
     getMenuItems,
     getMenuItemById,
     updateMenuItem,
     deleteMenuItem,
-    uploadMenuMedia
+    uploadMenuMedia,
+    getDigitalMenu
 };

@@ -57,6 +57,9 @@ const restaurantSchema = new mongoose.Schema({
     status: String,
     paidAt: Date
   }],
+  metadata: {
+    zomato_res_id: String
+  },
   isActive: {
     type: Boolean,
     default: true
