@@ -135,6 +135,32 @@ const createOrderSchema = () => new mongoose.Schema({
       min: 0,
     },
   }],
+  subtotal: {
+    type: Number,
+    min: 0
+  },
+  discount: {
+    percentage: {
+      type: Number,
+      min: 0,
+      max: 100
+    },
+    amount: {
+      type: Number,
+      min: 0,
+      default: 0
+    },
+    reason: {
+      type: String,
+      trim: true,
+      default: ''
+    },
+    appliedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'staff',
+      default: null
+    }
+  },
   totalAmount: {
     type: Number,
     required: true

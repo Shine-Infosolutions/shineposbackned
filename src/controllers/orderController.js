@@ -287,6 +287,8 @@ const createOrder = async (req, res) => {
 
     // Calculate discount if provided
     const { discount } = req.body;
+    console.log('Discount from request body:', discount);
+    
     let subtotal = totalAmount;
     let discountAmount = 0;
     let finalTotal = totalAmount;
@@ -294,6 +296,7 @@ const createOrder = async (req, res) => {
     if (discount && discount.percentage > 0) {
       discountAmount = (subtotal * discount.percentage) / 100;
       finalTotal = subtotal - discountAmount;
+      console.log('Discount calculated:', { percentage: discount.percentage, amount: discountAmount, finalTotal });
     }
 
     // Handle table assignment if provided
@@ -328,26 +331,39 @@ const createOrder = async (req, res) => {
       }
     }
 
-    const order = new OrderModel({
+    const orderData = {
       orderNumber,
       items: orderItems,
       subtotal,
-      discount: discount ? {
-        percentage: discount.percentage,
-        amount: discountAmount,
-        reason: discount.reason || "",
-        appliedBy: req.user?.id || null,
-      } : undefined,
       totalAmount: finalTotal,
       customerName,
       customerPhone: customerPhone || "",
       tableId: tableId || null,
       tableNumber: tableNumber,
       mergedTables: mergedTables.length > 0 ? mergedTables : undefined
-    });
+    };
+
+    if (discount && discount.percentage > 0) {
+      orderData.discount = {
+        percentage: discount.percentage,
+        amount: discountAmount,
+        reason: discount.reason || "",
+        appliedBy: req.user?.id || null,
+      };
+    }
+
+    console.log('OrderData before creating model:', JSON.stringify(orderData, null, 2));
+
+    const order = new OrderModel(orderData);
+
+    console.log('Order object before save:', JSON.stringify(order, null, 2));
+    console.log('Order.discount field:', order.discount);
+    console.log('Order.subtotal field:', order.subtotal);
 
     const savedOrder = await order.save();
     console.log('Order saved successfully:', savedOrder.orderNumber, 'Status:', savedOrder.status);
+    console.log('Saved order discount:', savedOrder.discount);
+    console.log('Saved order subtotal:', savedOrder.subtotal);
 
     // Auto-create KOT when order is created
     try {
