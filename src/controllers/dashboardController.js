@@ -7,7 +7,7 @@ const getDashboardStats = async (req, res) => {
       return res.status(400).json({ error: 'Restaurant slug not found' });
     }
 
-    const { filter = 'today' } = req.query;
+    const { filter = 'today', startDate: customStartDate, endDate: customEndDate } = req.query;
 
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
     const MenuModel = TenantModelFactory.getMenuItemModel(restaurantSlug);
@@ -18,14 +18,22 @@ const getDashboardStats = async (req, res) => {
     let startDate = new Date();
     startDate.setHours(0, 0, 0, 0);
     
-    if (filter === 'weekly') {
+    if (filter === 'custom' && customStartDate && customEndDate) {
+      startDate = new Date(customStartDate);
+      startDate.setHours(0, 0, 0, 0);
+    } else if (filter === 'weekly') {
       startDate.setDate(startDate.getDate() - 7);
     } else if (filter === 'monthly') {
       startDate.setMonth(startDate.getMonth() - 1);
     }
 
-    const endDate = new Date();
+    let endDate = new Date();
     endDate.setHours(23, 59, 59, 999);
+    
+    if (filter === 'custom' && customEndDate) {
+      endDate = new Date(customEndDate);
+      endDate.setHours(23, 59, 59, 999);
+    }
 
     // Fetch data
     const [allOrders, filteredOrders, menuItems, staff, categories] = await Promise.all([
