@@ -972,7 +972,7 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
-  getModel(restaurantSlug, modelName) {
+  getModel(restaurantSlug, modelName, schema) {
     const methodMap = {
       'Order': 'getOrderModel',
       'SplitBill': 'getSplitBillModel',
@@ -980,7 +980,15 @@ class TenantModelFactory {
       'Menu': 'getMenuModel'
     };
     const method = methodMap[modelName];
-    return method ? this[method](restaurantSlug) : null;
+    if (method) return this[method](restaurantSlug);
+    
+    // Generic model creation for CRM models
+    const modelKey = `${restaurantSlug}_${modelName.toLowerCase()}s`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model(modelName.toLowerCase() + 's', schema));
+    }
+    return this.models.get(modelKey);
   }
 
   async createTenantDatabase(restaurantSlug) {
