@@ -39,6 +39,7 @@ const dynoOrderRoutes = require('./routes/dynoOrder');
 const modulesRoutes = require('./routes/modules');
 const splitBillRoutes = require('./routes/splitBill');
 const crmRoutes = require('./routes/crm');
+const itemAnalysisRoutes = require('./routes/itemAnalysis');
 const systemController = require('./controllers/systemController');
 const { trackApiMetrics } = systemController;
 
@@ -95,6 +96,7 @@ app.use('/api/dyno', dynoOrderRoutes);
 app.use('/api/modules', modulesRoutes);
 app.use('/api/split-bill', splitBillRoutes);
 app.use('/api', crmRoutes);
+app.use('/api/reports/items', itemAnalysisRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/:restaurantSlug/orders', orderRoutes);
 

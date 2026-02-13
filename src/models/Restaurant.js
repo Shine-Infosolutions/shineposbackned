@@ -63,6 +63,12 @@ const restaurantSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  marginCostPercentage: {
+    type: Number,
+    default: 40,
+    min: 0,
+    max: 100
   }
 }, {
   timestamps: true

@@ -202,11 +202,62 @@ const toggleRestaurantStatus = async (req, res) => {
   }
 };
 
+const getRestaurantSettings = async (req, res) => {
+  try {
+    const restaurantSlug = req.user.restaurantSlug;
+    const restaurant = await Restaurant.findOne({ slug: restaurantSlug }).select('marginCostPercentage');
+    
+    if (!restaurant) {
+      return res.status(404).json({ error: 'Restaurant not found' });
+    }
+
+    res.json({ marginCostPercentage: restaurant.marginCostPercentage || 40 });
+  } catch (error) {
+    console.error('Get restaurant settings error:', error);
+    res.status(500).json({ error: 'Failed to fetch settings' });
+  }
+};
+
+const updateRestaurantSettings = async (req, res) => {
+  try {
+    const restaurantSlug = req.user.restaurantSlug;
+    const { marginCostPercentage } = req.body;
+    
+    console.log('Update settings request:', { restaurantSlug, marginCostPercentage });
+    
+    if (marginCostPercentage === undefined || marginCostPercentage === null) {
+      return res.status(400).json({ error: 'Margin cost percentage is required' });
+    }
+    
+    if (marginCostPercentage < 0 || marginCostPercentage > 100) {
+      return res.status(400).json({ error: 'Margin cost must be between 0 and 100' });
+    }
+
+    const restaurant = await Restaurant.findOne({ slug: restaurantSlug });
+    
+    if (!restaurant) {
+      return res.status(404).json({ error: 'Restaurant not found' });
+    }
+    
+    restaurant.marginCostPercentage = Number(marginCostPercentage);
+    await restaurant.save();
+    
+    console.log('Settings updated:', restaurant.marginCostPercentage);
+
+    res.json({ message: 'Settings updated successfully', marginCostPercentage: restaurant.marginCostPercentage });
+  } catch (error) {
+    console.error('Update restaurant settings error:', error);
+    res.status(500).json({ error: 'Failed to update settings' });
+  }
+};
+
 module.exports = {
   createRestaurant,
   getRestaurants,
   getRestaurantAnalytics,                                                                                                                                              
   updateRestaurant,
   deleteRestaurant,
-  toggleRestaurantStatus
+  toggleRestaurantStatus,
+  getRestaurantSettings,
+  updateRestaurantSettings
 };
