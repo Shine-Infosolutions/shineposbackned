@@ -1,11 +1,73 @@
 const TenantModelFactory = require('../models/TenantModelFactory');
 
+// Sync customer data from orders
+const syncCustomersFromOrders = async (req, res) => {
+  try {
+    const restaurantSlug = req.user.restaurantSlug;
+    const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
+    
+    const orders = await OrderModel.find({ customerPhone: { $exists: true, $ne: '' } });
+    
+    const customerMap = new Map();
+    
+    for (const order of orders) {
+      if (!order.customerPhone) continue;
+      
+      const key = order.customerPhone;
+      if (!customerMap.has(key)) {
+        customerMap.set(key, {
+          phone: order.customerPhone,
+          name: order.customerName || 'Guest',
+          totalOrders: 0,
+          totalSpent: 0,
+          lastOrderDate: order.createdAt
+        });
+      }
+      
+      const customer = customerMap.get(key);
+      customer.totalOrders++;
+      customer.totalSpent += order.totalAmount || 0;
+      if (order.createdAt > customer.lastOrderDate) {
+        customer.lastOrderDate = order.createdAt;
+        customer.name = order.customerName || customer.name;
+      }
+    }
+    
+    let created = 0, updated = 0;
+    
+    for (const [phone, data] of customerMap) {
+      const existing = await CustomerModel.findOne({ phone });
+      if (existing) {
+        existing.totalOrders = data.totalOrders;
+        existing.totalSpent = data.totalSpent;
+        existing.lastOrderDate = data.lastOrderDate;
+        existing.name = data.name;
+        await existing.save();
+        updated++;
+      } else {
+        await CustomerModel.create(data);
+        created++;
+      }
+    }
+    
+    res.json({ message: 'Customers synced successfully', created, updated, total: customerMap.size });
+  } catch (error) {
+    console.error('Sync customers error:', error);
+    res.status(500).json({ error: 'Failed to sync customers' });
+  }
+};
+
 // Customer endpoints
 const getCustomers = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
     const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    const customers = await CustomerModel.find().sort({ createdAt: -1 });
+    
+    const { phone } = req.query;
+    const query = phone ? { phone } : {};
+    
+    const customers = await CustomerModel.find(query).sort({ createdAt: -1 });
     res.json(customers);
   } catch (error) {
     console.error('Get customers error:', error);
@@ -15,11 +77,11 @@ const getCustomers = async (req, res) => {
 
 const createCustomer = async (req, res) => {
   try {
-    const { name, phone, email, address } = req.body;
+    const { name, phone, email } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
     
-    const customer = new CustomerModel({ name, phone, email, address });
+    const customer = new CustomerModel({ name, phone, email });
     await customer.save();
     res.status(201).json(customer);
   } catch (error) {
@@ -31,11 +93,18 @@ const createCustomer = async (req, res) => {
 const updateCustomer = async (req, res) => {
   try {
     const { id } = req.params;
+    const { name, phone, email } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
     
-    const customer = await CustomerModel.findByIdAndUpdate(id, req.body, { new: true });
+    const customer = await CustomerModel.findById(id);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
+    
+    customer.name = name;
+    customer.phone = phone;
+    customer.email = email || '';
+    
+    await customer.save();
     res.json(customer);
   } catch (error) {
     console.error('Update customer error:', error);
@@ -210,6 +279,7 @@ const updateReviewStatus = async (req, res) => {
 };
 
 module.exports = {
+  syncCustomersFromOrders,
   getCustomers,
   createCustomer,
   updateCustomer,

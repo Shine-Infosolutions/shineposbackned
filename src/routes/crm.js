@@ -1,6 +1,7 @@
 const express = require('express');
 const { activityLogger } = require('../middleware/activityLogger');
 const {
+  syncCustomersFromOrders,
   getCustomers,
   createCustomer,
   updateCustomer,
@@ -20,6 +21,9 @@ const checkSubscription = require('../middleware/checkSubscription');
 const tenantMiddleware = require('../middleware/tenant');
 
 const router = express.Router();
+
+// Sync route
+router.post('/customers/sync', auth(['RESTAURANT_ADMIN']), checkSubscription, tenantMiddleware, activityLogger('CRM'), syncCustomersFromOrders);
 
 // Loyalty routes
 router.get('/loyalty/settings', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('CRM'), getLoyaltySettings);

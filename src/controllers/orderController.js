@@ -374,6 +374,8 @@ const createOrder = async (req, res) => {
     const order = new OrderModel(orderData);
     const savedOrder = await order.save();
 
+    // Note: Loyalty points will be credited when payment is processed
+
     // Auto-create KOT when order is created
     try {
       const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
@@ -556,7 +558,7 @@ const updateOrderStatus = async (req, res) => {
 const processPayment = async (req, res) => {
   try {
     const { id } = req.params;
-    const { method, amount, transactionId } = req.body;
+    const { method, amount, transactionId, loyaltyPointsUsed } = req.body;
 
     const OrderModel =
       req.tenantModels?.Order ||
@@ -567,23 +569,59 @@ const processPayment = async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    // Use totalAmount (which includes discount) for payment validation
-    if (amount !== order.totalAmount) {
-      return res
-        .status(400)
-        .json({ 
-          error: "Payment amount does not match order total",
-          expected: order.totalAmount,
-          received: amount,
-          discount: order.discount || null
-        });
+    // Handle loyalty points redemption
+    if (loyaltyPointsUsed && loyaltyPointsUsed > 0 && order.customerPhone) {
+      const CustomerModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'Customer', require('../models/Customer'));
+      const customer = await CustomerModel.findOne({ phone: order.customerPhone });
+      
+      if (customer && customer.loyaltyPoints >= loyaltyPointsUsed) {
+        customer.loyaltyPoints -= loyaltyPointsUsed;
+        customer.redeemedPoints = (customer.redeemedPoints || 0) + loyaltyPointsUsed;
+        await customer.save();
+      }
+    }
+
+    // Credit loyalty points and update customer stats after payment
+    if (order.customerPhone) {
+      try {
+        const CustomerModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'Customer', require('../models/Customer'));
+        const LoyaltySettingsModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'LoyaltySettings', require('../models/LoyaltySettings'));
+        
+        let customer = await CustomerModel.findOne({ phone: order.customerPhone });
+        let loyaltySettings = await LoyaltySettingsModel.findOne();
+        
+        if (customer) {
+          customer.totalOrders = (customer.totalOrders || 0) + 1;
+          customer.totalSpent = (customer.totalSpent || 0) + amount;
+          customer.lastOrderDate = new Date();
+          if (loyaltySettings) {
+            customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(amount * loyaltySettings.pointsPerRupee);
+          }
+          await customer.save();
+        } else {
+          const newCustomer = {
+            name: order.customerName || 'Guest',
+            phone: order.customerPhone,
+            totalOrders: 1,
+            totalSpent: amount,
+            lastOrderDate: new Date()
+          };
+          if (loyaltySettings) {
+            newCustomer.loyaltyPoints = Math.floor(amount * loyaltySettings.pointsPerRupee);
+          }
+          await CustomerModel.create(newCustomer);
+        }
+      } catch (crmError) {
+        console.error('CRM update error:', crmError);
+      }
     }
 
     order.status = 'PAID';
     order.paymentDetails = {
       method,
-      amount: order.totalAmount, // Use discounted total
+      amount,
       transactionId,
+      loyaltyPointsUsed: loyaltyPointsUsed || 0,
       paidAt: new Date(),
     };
 

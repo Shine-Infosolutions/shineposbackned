@@ -23,6 +23,9 @@ Complete backend implementation for the CRM (Customer Relationship Management) m
 
 ## API Endpoints
 
+### Customer Sync
+- `POST /api/customers/sync` - Import customers from existing orders (Admin only)
+
 ### Customer Management
 - `GET /api/customers` - Get all customers
 - `POST /api/customers` - Create new customer
@@ -45,6 +48,12 @@ Complete backend implementation for the CRM (Customer Relationship Management) m
 - `PATCH /api/reviews/:id` - Update review status (pending/resolved)
 
 ## Features Implemented
+
+### Automatic Customer Data Population
+- **Auto-sync from orders**: Customers are automatically created/updated when orders are placed
+- **Manual sync**: Use `POST /api/customers/sync` to import all existing order data
+- **Loyalty points**: Automatically calculated and added based on order amount
+- **Order tracking**: Total orders and spending tracked automatically
 
 ### Customer Database
 - Store customer contact information
