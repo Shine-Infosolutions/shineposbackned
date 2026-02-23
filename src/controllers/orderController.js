@@ -793,6 +793,13 @@ const updateItemStatus = async (req, res) => {
       order.items[itemIndex].actualPrepTime = `${mins}:${secs.toString().padStart(2, '0')}`;
     }
     
+    // Check if all items are SERVED and update order status to READY
+    const allItems = [...order.items, ...(order.extraItems || [])];
+    const allServed = allItems.length > 0 && allItems.every(item => item.status === 'SERVED');
+    if (allServed && order.status !== 'READY') {
+      order.status = 'READY';
+    }
+    
     await order.save();
 
     // Update corresponding item in KOT
@@ -996,6 +1003,13 @@ const updateExtraItemStatus = async (req, res) => {
       const mins = Math.floor(seconds / 60);
       const secs = seconds % 60;
       order.extraItems[itemIndex].actualPrepTime = `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    
+    // Check if all items are SERVED and update order status to READY
+    const allItems = [...order.items, ...(order.extraItems || [])];
+    const allServed = allItems.length > 0 && allItems.every(item => item.status === 'SERVED');
+    if (allServed && order.status !== 'READY') {
+      order.status = 'READY';
     }
     
     await order.save();
