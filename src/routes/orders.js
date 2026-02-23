@@ -12,6 +12,7 @@ const {
   updateExtraItemStatus,
   updateOrderPriority,
   processPayment,
+  applyCoupon,
   applyDiscount,
 } = require("../controllers/orderController");
 const { fixExtraItemsField } = require("../controllers/fixController");
@@ -191,6 +192,19 @@ router.patch(
       .withMessage("Invalid priority"),
   ],
   updateOrderPriority,
+);
+
+/*=====================================================
+   APPLY COUPON
+======================================================*/
+router.patch(
+  "/coupon/:orderId",
+  activityLogger("Order"),
+  [
+    param("orderId").isMongoId().withMessage("Invalid order ID"),
+    body("couponCode").notEmpty().withMessage("Coupon code is required"),
+  ],
+  applyCoupon,
 );
 
 /*=====================================================

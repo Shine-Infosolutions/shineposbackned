@@ -193,6 +193,8 @@ const OrderSchema = new mongoose.Schema(
         ref: "Staff",
         default: null,
       },
+      couponCode: String,
+      discountId: { type: mongoose.Schema.Types.ObjectId, ref: "Discount" },
     },
 
     gst: {

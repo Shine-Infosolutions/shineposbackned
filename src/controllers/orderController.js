@@ -1026,6 +1026,145 @@ const updateExtraItemStatus = async (req, res) => {
 };
 
 /* =====================================================
+   APPLY COUPON TO ORDER
+===================================================== */
+const applyCoupon = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+    const { couponCode, customerId, employeeId } = req.body;
+
+    if (!couponCode) {
+      return res.status(400).json({ error: "Coupon code is required" });
+    }
+
+    const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const order = await OrderModel.findById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (order.status === 'PAID' || order.status === 'CANCELLED') {
+      return res.status(400).json({ error: "Cannot apply coupon to paid or cancelled orders" });
+    }
+
+    // Validate coupon
+    const Discount = require('../models/Discount');
+    const DiscountUsage = require('../models/DiscountUsage');
+    const Restaurant = require('../models/Restaurant');
+    
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    
+    const discount = await Discount.findOne({ 
+      restaurantId: restaurant._id,
+      code: couponCode.toUpperCase(),
+      isActive: true 
+    });
+    
+    if (!discount) {
+      return res.status(404).json({ error: 'Invalid coupon code' });
+    }
+    
+    const now = new Date();
+    if (now < discount.validFrom || now > discount.validUntil) {
+      return res.status(400).json({ error: 'Coupon has expired or not yet valid' });
+    }
+    
+    // Check usage limits
+    if (discount.usageLimit && discount.usageCount >= discount.usageLimit) {
+      return res.status(400).json({ error: 'Coupon usage limit reached' });
+    }
+    
+    if (discount.perUserLimit && customerId) {
+      const userUsage = await DiscountUsage.countDocuments({ discountId: discount._id, customerId });
+      if (userUsage >= discount.perUserLimit) {
+        return res.status(400).json({ error: 'You have reached the usage limit for this coupon' });
+      }
+    }
+    
+    const orderTotal = order.subtotal || order.totalAmount;
+    
+    // Check minimum order amount
+    if (orderTotal < discount.minOrderAmount) {
+      return res.status(400).json({ error: `Minimum order amount is ${discount.minOrderAmount}` });
+    }
+    
+    // Type-specific validations
+    if (discount.type === 'employee') {
+      if (!employeeId) return res.status(400).json({ error: 'Employee ID required' });
+      if (!discount.allEmployees && !discount.employeeIds.includes(employeeId)) {
+        return res.status(400).json({ error: 'Not eligible for employee discount' });
+      }
+    }
+    
+    // Calculate discount
+    const items = [...order.items, ...(order.extraItems || [])];
+    let applicableAmount = orderTotal;
+    
+    if (!discount.applyToAll && (discount.applicableItems?.length || discount.applicableCategories?.length)) {
+      applicableAmount = items.reduce((sum, item) => {
+        const isApplicable = discount.applicableItems?.some(id => id.toString() === item.menuId.toString()) || 
+                            discount.applicableCategories?.some(id => id.toString() === item.categoryId?.toString());
+        return sum + (isApplicable ? item.itemTotal : 0);
+      }, 0);
+    }
+    
+    let discountAmount = discount.discountType === 'percentage' 
+      ? (applicableAmount * discount.value) / 100 
+      : discount.value;
+    
+    if (discount.maxDiscountAmount) {
+      discountAmount = Math.min(discountAmount, discount.maxDiscountAmount);
+    }
+    
+    discountAmount = Math.round(discountAmount * 100) / 100;
+    
+    // Apply discount to order
+    order.discount = {
+      amount: discountAmount,
+      reason: discount.name,
+      couponCode: couponCode.toUpperCase(),
+      discountId: discount._id,
+      appliedBy: req.user?.id || null,
+    };
+    
+    // Recalculate total
+    const afterDiscount = orderTotal - discountAmount;
+    const gstAmount = (afterDiscount * 2.5) / 100;
+    const sgstAmount = (afterDiscount * 2.5) / 100;
+    order.totalAmount = afterDiscount + gstAmount + sgstAmount;
+    
+    await order.save();
+    
+    // Track usage
+    discount.usageCount += 1;
+    await discount.save();
+    
+    await DiscountUsage.create({
+      discountId: discount._id,
+      customerId: customerId || null,
+      orderId: order._id,
+      restaurantId: restaurant._id,
+      discountAmount
+    });
+
+    res.json({
+      message: "Coupon applied successfully",
+      order,
+      discountApplied: {
+        code: couponCode.toUpperCase(),
+        name: discount.name,
+        amount: discountAmount,
+        finalTotal: order.totalAmount
+      }
+    });
+  } catch (error) {
+    console.error("Apply coupon error:", error);
+    res.status(500).json({ error: "Failed to apply coupon" });
+  }
+};
+
+/* =====================================================
    APPLY DISCOUNT TO ORDER
 ===================================================== */
 const applyDiscount = async (req, res) => {
@@ -1112,6 +1251,7 @@ module.exports = {
   updateExtraItemStatus,
   processPayment,
   updateOrderPriority,
+  applyCoupon,
   applyDiscount,
   getKOTData,
   printKOT,
