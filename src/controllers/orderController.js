@@ -1179,6 +1179,49 @@ const applyCoupon = async (req, res) => {
 };
 
 /* =====================================================
+   REMOVE COUPON FROM ORDER
+===================================================== */
+const removeCoupon = async (req, res) => {
+  try {
+    const { orderId } = req.params;
+
+    const OrderModel = TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const order = await OrderModel.findById(orderId);
+    
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    if (order.status === 'PAID' || order.status === 'CANCELLED') {
+      return res.status(400).json({ error: "Cannot remove coupon from paid or cancelled orders" });
+    }
+
+    if (!order.discount || !order.discount.couponCode) {
+      return res.status(400).json({ error: "No coupon applied to this order" });
+    }
+
+    // Recalculate total without discount
+    const subtotal = order.subtotal || order.totalAmount;
+    const gstAmount = (subtotal * 2.5) / 100;
+    const sgstAmount = (subtotal * 2.5) / 100;
+    order.totalAmount = subtotal + gstAmount + sgstAmount;
+    
+    // Remove discount
+    order.discount = undefined;
+    
+    await order.save();
+
+    res.json({
+      message: "Coupon removed successfully",
+      order
+    });
+  } catch (error) {
+    console.error("Remove coupon error:", error);
+    res.status(500).json({ error: "Failed to remove coupon" });
+  }
+};
+
+/* =====================================================
    APPLY DISCOUNT TO ORDER
 ===================================================== */
 const applyDiscount = async (req, res) => {
@@ -1266,6 +1309,7 @@ module.exports = {
   processPayment,
   updateOrderPriority,
   applyCoupon,
+  removeCoupon,
   applyDiscount,
   getKOTData,
   printKOT,

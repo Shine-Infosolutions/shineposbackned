@@ -1,10 +1,14 @@
 const Discount = require('../models/Discount');
 const DiscountUsage = require('../models/DiscountUsage');
+const Restaurant = require('../models/Restaurant');
 
 // Create discount
 exports.createDiscount = async (req, res) => {
   try {
-    const discount = new Discount({ ...req.body, restaurantId: req.user.restaurantId, createdBy: req.user._id });
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
+    const discount = new Discount({ ...req.body, restaurantId: restaurant._id, createdBy: req.user._id });
     await discount.save();
     res.status(201).json(discount);
   } catch (error) {
@@ -15,8 +19,11 @@ exports.createDiscount = async (req, res) => {
 // Get all discounts
 exports.getDiscounts = async (req, res) => {
   try {
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
     const { type, isActive } = req.query;
-    const filter = { restaurantId: req.user.restaurantId };
+    const filter = { restaurantId: restaurant._id };
     if (type) filter.type = type;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
     
@@ -30,7 +37,10 @@ exports.getDiscounts = async (req, res) => {
 // Get discount by ID
 exports.getDiscountById = async (req, res) => {
   try {
-    const discount = await Discount.findOne({ _id: req.params.id, restaurantId: req.user.restaurantId });
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
+    const discount = await Discount.findOne({ _id: req.params.id, restaurantId: restaurant._id });
     if (!discount) return res.status(404).json({ error: 'Discount not found' });
     res.json(discount);
   } catch (error) {
@@ -41,8 +51,11 @@ exports.getDiscountById = async (req, res) => {
 // Update discount
 exports.updateDiscount = async (req, res) => {
   try {
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
     const discount = await Discount.findOneAndUpdate(
-      { _id: req.params.id, restaurantId: req.user.restaurantId },
+      { _id: req.params.id, restaurantId: restaurant._id },
       { ...req.body, updatedBy: req.user._id },
       { new: true, runValidators: true }
     );
@@ -56,7 +69,10 @@ exports.updateDiscount = async (req, res) => {
 // Delete discount
 exports.deleteDiscount = async (req, res) => {
   try {
-    const discount = await Discount.findOneAndDelete({ _id: req.params.id, restaurantId: req.user.restaurantId });
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
+    const discount = await Discount.findOneAndDelete({ _id: req.params.id, restaurantId: restaurant._id });
     if (!discount) return res.status(404).json({ error: 'Discount not found' });
     res.json({ message: 'Discount deleted successfully' });
   } catch (error) {
@@ -67,10 +83,13 @@ exports.deleteDiscount = async (req, res) => {
 // Validate and apply discount
 exports.validateDiscount = async (req, res) => {
   try {
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
     const { code, customerId, items, orderTotal, employeeId } = req.body;
     
     const discount = await Discount.findOne({ 
-      restaurantId: req.user.restaurantId, 
+      restaurantId: restaurant._id, 
       code: code?.toUpperCase(),
       isActive: true 
     });
@@ -132,9 +151,12 @@ exports.validateDiscount = async (req, res) => {
 // Get active discounts for customer
 exports.getActiveDiscounts = async (req, res) => {
   try {
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
     const now = new Date();
     const discounts = await Discount.find({
-      restaurantId: req.user.restaurantId,
+      restaurantId: restaurant._id,
       isActive: true,
       validFrom: { $lte: now },
       validUntil: { $gte: now },
@@ -150,8 +172,11 @@ exports.getActiveDiscounts = async (req, res) => {
 // Get discount usage statistics
 exports.getDiscountStats = async (req, res) => {
   try {
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
+    
     const { startDate, endDate } = req.query;
-    const filter = { restaurantId: req.user.restaurantId };
+    const filter = { restaurantId: restaurant._id };
     
     if (startDate && endDate) {
       filter.usedAt = { $gte: new Date(startDate), $lte: new Date(endDate) };

@@ -13,6 +13,7 @@ const {
   updateOrderPriority,
   processPayment,
   applyCoupon,
+  removeCoupon,
   applyDiscount,
 } = require("../controllers/orderController");
 const { fixExtraItemsField } = require("../controllers/fixController");
@@ -205,6 +206,18 @@ router.patch(
     body("couponCode").notEmpty().withMessage("Coupon code is required"),
   ],
   applyCoupon,
+);
+
+/*=====================================================
+   REMOVE COUPON
+======================================================*/
+router.delete(
+  "/coupon/:orderId",
+  activityLogger("Order"),
+  [
+    param("orderId").isMongoId().withMessage("Invalid order ID"),
+  ],
+  removeCoupon,
 );
 
 /*=====================================================
