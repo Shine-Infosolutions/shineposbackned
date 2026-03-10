@@ -74,7 +74,10 @@ const getStaff = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
-    const staff = await StaffModel.find({ isActive: true }).select('-password').sort({ createdAt: -1 });
+    const staff = await StaffModel.find({ isActive: true })
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .lean();
     
     res.json({ staff });
   } catch (error) {
@@ -152,26 +155,36 @@ const scheduleShift = async (req, res) => {
 const assignOvertime = async (req, res) => {
   try {
     const { id } = req.params;
-    const { date, hours, reason } = req.body;
+    const { date, startTime, endTime, hours, reason } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId || req.user.id;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
     
     const staff = await StaffModel.findById(id);
     if (!staff) {
-      return res.status(404).json({ error: 'Staff member not found' });
+      return res.status(400).json({ error: 'Staff member not found' });
     }
 
-    staff.overtimeRequests.push({
+    const rate = staff.overtimeRate || 0;
+    const amount = hours * rate;
+
+    const overtime = new OvertimeModel({
+      staffId: id,
+      staffName: staff.name,
       date,
+      startTime,
+      endTime,
       hours,
+      rate,
+      amount,
       reason,
       status: 'pending',
       assignedBy: currentUserId
     });
-    await staff.save();
+    await overtime.save();
 
-    res.json({ message: 'Overtime assigned successfully', overtimeRequest: staff.overtimeRequests[staff.overtimeRequests.length - 1] });
+    res.json({ message: 'Overtime assigned successfully', overtime });
   } catch (error) {
     console.error('Assign overtime error:', error);
     res.status(500).json({ error: 'Failed to assign overtime' });
@@ -183,32 +196,42 @@ const respondToOvertime = async (req, res) => {
     const { requestId } = req.params;
     const { status } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const currentUserId = req.user.userId || req.user.id;
-    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const currentUserId = req.user.userId;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
     
     if (!['accepted', 'declined'].includes(status)) {
       return res.status(400).json({ error: 'Invalid status' });
     }
     
-    const staff = await StaffModel.findOne({ 'overtimeRequests._id': requestId });
-    if (!staff) {
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
       return res.status(404).json({ error: 'Overtime request not found' });
     }
     
-    if (staff._id.toString() !== currentUserId) {
+    if (overtime.staffId.toString() !== currentUserId.toString()) {
       return res.status(403).json({ error: 'Can only respond to your own overtime requests' });
     }
     
-    const overtimeRequest = staff.overtimeRequests.id(requestId);
-    if (overtimeRequest.status !== 'pending') {
+    if (overtime.status === 'completed' || overtime.status === 'declined') {
+      return res.status(400).json({ error: 'Cannot change status of completed or declined overtime' });
+    }
+    
+    if (overtime.status !== 'pending' && status === 'declined') {
+      overtime.status = 'declined';
+      overtime.respondedAt = new Date();
+      await overtime.save();
+      return res.json({ message: 'Overtime declined successfully', overtime });
+    }
+    
+    if (overtime.status !== 'pending') {
       return res.status(400).json({ error: 'Overtime request already responded' });
     }
     
-    overtimeRequest.status = status;
-    overtimeRequest.respondedAt = new Date();
-    await staff.save();
+    overtime.status = status;
+    overtime.respondedAt = new Date();
+    await overtime.save();
 
-    res.json({ message: `Overtime ${status} successfully`, overtimeRequest });
+    res.json({ message: `Overtime ${status} successfully`, overtime });
   } catch (error) {
     console.error('Respond to overtime error:', error);
     res.status(500).json({ error: 'Failed to respond to overtime' });
@@ -218,15 +241,39 @@ const respondToOvertime = async (req, res) => {
 const getMyOvertimeRequests = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const currentUserId = req.user.userId || req.user.id;
-    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const currentUserId = req.user.userId;
+    const userRole = req.user.role;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
     
-    const staff = await StaffModel.findById(currentUserId);
+    let overtimeRequests;
+    if (userRole === 'RESTAURANT_ADMIN') {
+      overtimeRequests = await OvertimeModel.find().sort({ createdAt: -1 });
+      return res.json({ 
+        overtimeRequests,
+        overtimeRate: 0,
+        salaryType: 'fixed',
+        salaryAmount: 0,
+        hourlyRate: 0,
+        dayRate: 0
+      });
+    }
+    
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const staff = await StaffModel.findById(currentUserId).select('overtimeRate salaryType salaryAmount hourlyRate dayRate');
     if (!staff) {
       return res.status(404).json({ error: 'Staff member not found' });
     }
 
-    res.json({ overtimeRequests: staff.overtimeRequests || [] });
+    overtimeRequests = await OvertimeModel.find({ staffId: currentUserId }).sort({ createdAt: -1 });
+
+    res.json({ 
+      overtimeRequests,
+      overtimeRate: staff.overtimeRate || 0,
+      salaryType: staff.salaryType,
+      salaryAmount: staff.salaryAmount,
+      hourlyRate: staff.hourlyRate,
+      dayRate: staff.dayRate
+    });
   } catch (error) {
     console.error('Get overtime requests error:', error);
     res.status(500).json({ error: 'Failed to fetch overtime requests' });
@@ -260,6 +307,147 @@ const updatePerformance = async (req, res) => {
   }
 };
 
+const setOvertimeRate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { overtimeRate } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    
+    console.log('Setting overtime rate:', { id, overtimeRate: Number(overtimeRate), restaurantSlug });
+    
+    const staff = await StaffModel.findById(id);
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found' });
+    }
+    
+    staff.overtimeRate = Number(overtimeRate) || 0;
+    await staff.save();
+    
+    console.log('Updated staff overtime rate:', staff.overtimeRate);
+    
+    const { password: _, ...staffData } = staff.toObject();
+    res.json({ message: 'Overtime rate updated successfully', staff: staffData });
+  } catch (error) {
+    console.error('Set overtime rate error:', error);
+    res.status(500).json({ error: 'Failed to set overtime rate', details: error.message });
+  }
+};
+
+const addOvertimeRecord = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { date, startTime, endTime, hours, notes } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const currentUserId = req.user.userId || req.user.id;
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    
+    const staff = await StaffModel.findById(id);
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found' });
+    }
+    
+    if (!staff.overtimeRecords) {
+      staff.overtimeRecords = [];
+    }
+    
+    const overtimeHours = Number(hours) || 0;
+    const amount = overtimeHours * (staff.overtimeRate || 0);
+    
+    staff.overtimeRecords.push({
+      date: date || new Date(),
+      startTime,
+      endTime,
+      hours: overtimeHours,
+      rate: staff.overtimeRate,
+      amount,
+      notes,
+      createdBy: currentUserId
+    });
+    
+    await staff.save();
+    
+    res.json({ 
+      message: 'Overtime record added successfully', 
+      record: staff.overtimeRecords[staff.overtimeRecords.length - 1] 
+    });
+  } catch (error) {
+    console.error('Add overtime record error:', error);
+    console.error('Error details:', error.message);
+    res.status(500).json({ error: 'Failed to add overtime record', details: error.message });
+  }
+};
+
+const getOvertimeRecords = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    
+    const staff = await StaffModel.findById(id).select('name overtimeRecords overtimeRate');
+    if (!staff) {
+      return res.status(404).json({ error: 'Staff member not found' });
+    }
+    
+    res.json({ overtimeRecords: staff.overtimeRecords || [], staff: { name: staff.name, overtimeRate: staff.overtimeRate } });
+  } catch (error) {
+    console.error('Get overtime records error:', error);
+    res.status(500).json({ error: 'Failed to fetch overtime records' });
+  }
+};
+
+const completeOvertime = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findByIdAndUpdate(
+      requestId,
+      { status: 'completed', completedAt: new Date() },
+      { new: true }
+    );
+    
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime record not found' });
+    }
+
+    res.json({ message: 'Overtime marked as completed', overtime });
+  } catch (error) {
+    console.error('Complete overtime error:', error);
+    res.status(500).json({ error: 'Failed to complete overtime' });
+  }
+};
+
+const getStaffOvertimeRecords = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const records = await OvertimeModel.find({ staffId }).sort({ createdAt: -1 });
+    
+    res.json({ records });
+  } catch (error) {
+    console.error('Get staff overtime records error:', error);
+    res.status(500).json({ error: 'Failed to fetch overtime records' });
+  }
+};
+
+const getOvertimeResponses = async (req, res) => {
+  try {
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const responses = await OvertimeModel.find().sort({ createdAt: -1 });
+    
+    res.json({ responses });
+  } catch (error) {
+    console.error('Get overtime responses error:', error);
+    res.status(500).json({ error: 'Failed to fetch overtime responses' });
+  }
+};
+
 module.exports = {
   createStaff,
   getStaff,
@@ -268,5 +456,11 @@ module.exports = {
   updatePerformance,
   assignOvertime,
   respondToOvertime,
-  getMyOvertimeRequests
+  getMyOvertimeRequests,
+  setOvertimeRate,
+  addOvertimeRecord,
+  getOvertimeRecords,
+  getOvertimeResponses,
+  getStaffOvertimeRecords,
+  completeOvertime
 };

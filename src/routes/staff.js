@@ -9,7 +9,13 @@ const {
   updatePerformance,
   assignOvertime,
   respondToOvertime,
-  getMyOvertimeRequests
+  getMyOvertimeRequests,
+  setOvertimeRate,
+  addOvertimeRecord,
+  getOvertimeRecords,
+  getOvertimeResponses,
+  getStaffOvertimeRecords,
+  completeOvertime
 } = require('../controllers/staffController');
 const auth = require('../middleware/auth');
 const checkSubscription = require('../middleware/checkSubscription');
@@ -18,7 +24,12 @@ const { trackUsage } = require('../middleware/subscription');
 
 const router = express.Router();
 
+router.get('/test', (req, res) => {
+  res.json({ message: 'Staff routes loaded' });
+});
+
 router.get('/all/staff', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Staff'), getStaff);
+router.get('/overtime-responses', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, getOvertimeResponses);
 router.post('/add/staff', auth(['RESTAURANT_ADMIN']), checkSubscription, trackUsage, tenantMiddleware, activityLogger('Staff'), [
   body('email').isEmail().withMessage('Valid email is required'),
   body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
@@ -34,6 +45,10 @@ router.post('/add/:id/shifts', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubsc
 router.patch('/update/performance/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Performance'), updatePerformance);
 router.post('/assign-overtime/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Overtime'), assignOvertime);
 router.patch('/overtime/:requestId/respond', auth(['MANAGER', 'CHEF', 'WAITER', 'CASHIER']), checkSubscription, tenantMiddleware, respondToOvertime);
-router.get('/my-overtime', auth(['MANAGER', 'CHEF', 'WAITER', 'CASHIER']), checkSubscription, tenantMiddleware, getMyOvertimeRequests);
+router.get('/my-overtime', auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER']), getMyOvertimeRequests);
+router.patch('/set-overtime-rate/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Overtime Rate'), setOvertimeRate);
+router.post('/overtime-record/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Overtime Record'), addOvertimeRecord);
+router.patch('/overtime/:requestId/complete', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, completeOvertime);
+router.get('/staff-overtime-records/:staffId', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, getStaffOvertimeRecords);
 
 module.exports = router;

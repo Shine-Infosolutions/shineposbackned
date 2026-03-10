@@ -72,6 +72,8 @@ const staffSchema = new mongoose.Schema({
   },
   overtimeRequests: [{
     date: Date,
+    startTime: String,
+    endTime: String,
     hours: Number,
     reason: String,
     status: {
@@ -81,6 +83,17 @@ const staffSchema = new mongoose.Schema({
     },
     assignedBy: mongoose.Schema.Types.ObjectId,
     respondedAt: Date,
+    createdAt: { type: Date, default: Date.now }
+  }],
+  overtimeRecords: [{
+    date: { type: Date, default: Date.now },
+    startTime: String,
+    endTime: String,
+    hours: Number,
+    rate: Number,
+    amount: Number,
+    notes: String,
+    createdBy: mongoose.Schema.Types.ObjectId,
     createdAt: { type: Date, default: Date.now }
   }],
 

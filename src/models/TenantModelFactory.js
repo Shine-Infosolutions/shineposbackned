@@ -3,6 +3,7 @@ const recipeSchema = require('./Recipe');
 const wastageSchema = require('./Wastage');
 const { vendorSchema, vendorPriceSchema } = require('./Vendor');
 const purchaseOrderSchema = require('./PurchaseOrder');
+const overtimeSchema = require('./Overtime');
 
 // User Schema for tenant-specific collections
 const createUserSchema = () => new mongoose.Schema({
@@ -367,7 +368,24 @@ const createStaffSchema = () => new mongoose.Schema({
     enum: ['orders', 'menus', 'inventory', 'staff', 'reports', 'kitchen']
   }],
   phone: String,
+  salaryType: {
+    type: String,
+    enum: ['fixed', 'hourly', 'daily'],
+    default: 'fixed'
+  },
+  salaryAmount: {
+    type: Number,
+    default: 0
+  },
   hourlyRate: {
+    type: Number,
+    default: 0
+  },
+  dayRate: {
+    type: Number,
+    default: 0
+  },
+  overtimeRate: {
     type: Number,
     default: 0
   },
@@ -375,13 +393,18 @@ const createStaffSchema = () => new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  workingHours: {
+    standardHours: { type: Number, default: 8 }
+  },
+  shiftSchedule: mongoose.Schema.Types.Mixed,
   shifts: [{
     date: Date,
     startTime: String,
     endTime: String,
+    shiftType: String,
     status: {
       type: String,
-      enum: ['scheduled', 'completed', 'missed'],
+      enum: ['scheduled', 'completed', 'missed', 'cancelled'],
       default: 'scheduled'
     }
   }],
@@ -389,7 +412,33 @@ const createStaffSchema = () => new mongoose.Schema({
     ordersProcessed: { type: Number, default: 0 },
     averageOrderTime: { type: Number, default: 0 },
     customerRating: { type: Number, default: 0 }
-  }
+  },
+  overtimeRequests: [{
+    date: Date,
+    startTime: String,
+    endTime: String,
+    hours: Number,
+    reason: String,
+    status: {
+      type: String,
+      enum: ['pending', 'accepted', 'declined'],
+      default: 'pending'
+    },
+    assignedBy: mongoose.Schema.Types.ObjectId,
+    respondedAt: Date,
+    createdAt: { type: Date, default: Date.now }
+  }],
+  overtimeRecords: [{
+    date: { type: Date, default: Date.now },
+    startTime: String,
+    endTime: String,
+    hours: Number,
+    rate: Number,
+    amount: Number,
+    notes: String,
+    createdBy: mongoose.Schema.Types.ObjectId,
+    createdAt: { type: Date, default: Date.now }
+  }]
 }, {
   timestamps: true
 });
@@ -981,6 +1030,15 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getOvertimeModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_overtimes`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('overtimes', overtimeSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getModel(restaurantSlug, modelName, schema) {
     const methodMap = {
       'Order': 'getOrderModel',
@@ -1019,6 +1077,7 @@ class TenantModelFactory {
     this.getWastageModel(restaurantSlug);
     this.getVendorModel(restaurantSlug);
     this.getVendorPriceModel(restaurantSlug);
+    this.getOvertimeModel(restaurantSlug);
   }
 }
 
