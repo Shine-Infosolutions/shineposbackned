@@ -84,7 +84,7 @@ module.exports = {
   CODE_PAGE_CHINA: Buffer.from([0x1b, 0x52, 0x0F]),
   CODE_PAGE_HK_TW: Buffer.from([0x1b, 0x52, 0x00]),
   CODE_PAGE_TCVN_VIETNAMESE: Buffer.from([0x1b, 0x74, 52]),
-
+  CODE_PAGE_VISCII: Buffer.from([0x1b, 0x74, 52]),
   // Character code pages / iconv name of code table.
   // Only code pages supported by iconv-lite:
   // https://github.com/ashtuchkin/iconv-lite/wiki/Supported-Encodings
@@ -126,5 +126,6 @@ module.exports = {
     CHINA: 'EUC-CN',
     HK_TW: 'Big5-HKSCS',
     TCVN_VIETNAMESE: 'tcvn',
+    VISCII: 'viscii'
   }
 };
