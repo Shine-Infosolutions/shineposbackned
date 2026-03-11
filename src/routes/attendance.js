@@ -7,7 +7,8 @@ const {
   getMyAttendance,
   getTodayAttendance,
   markAttendance,
-  getAllAttendance
+  getAllAttendance,
+  getStaffAttendanceByDate
 } = require('../controllers/attendanceController');
 const {
   scheduleShift,
@@ -92,6 +93,13 @@ router.put('/performance/:id',
   tenantMiddleware,
   activityLogger('Performance Update'),
   updatePerformance
+);
+
+router.get('/staff/:staffId', 
+  auth(['RESTAURANT_ADMIN', 'MANAGER']), 
+  checkSubscription, 
+  tenantMiddleware, 
+  getStaffAttendanceByDate
 );
 
 module.exports = router;
