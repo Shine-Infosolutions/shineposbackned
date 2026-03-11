@@ -34,6 +34,16 @@ const overtimeSchema = new mongoose.Schema({
   respondedAt: Date,
   assignedBy: mongoose.Schema.Types.ObjectId,
   notes: String,
+  actualHoursWorked: {
+    type: Number,
+    default: 0
+  },
+  actualRate: {
+    type: Number,
+    default: 0
+  },
+  declinedAt: Date,
+  completedAt: Date,
   createdAt: {
     type: Date,
     default: Date.now

@@ -400,11 +400,40 @@ const generateExpectedShifts = (staff, startDate, endDate) => {
   return shifts;
 };
 
+const getStaffAttendanceByDate = async (req, res) => {
+  try {
+    const { staffId } = req.params;
+    const { date } = req.query;
+    const restaurantSlug = req.user.restaurantSlug;
+    const AttendanceModel = TenantModelFactory.getAttendanceModel(restaurantSlug);
+    
+    if (!date) {
+      return res.status(400).json({ error: 'Date parameter required' });
+    }
+    
+    const attendanceDate = new Date(date);
+    attendanceDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(attendanceDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+    
+    const attendance = await AttendanceModel.findOne({
+      staffId,
+      date: { $gte: attendanceDate, $lt: nextDay }
+    });
+    
+    res.json({ attendance });
+  } catch (error) {
+    console.error('Get staff attendance by date error:', error);
+    res.status(500).json({ error: 'Failed to fetch attendance' });
+  }
+};
+
 module.exports = {
   checkIn,
   checkOut,
   getMyAttendance,
   getTodayAttendance,
   markAttendance,
-  getAllAttendance
+  getAllAttendance,
+  getStaffAttendanceByDate
 };

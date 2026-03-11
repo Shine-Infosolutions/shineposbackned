@@ -15,7 +15,8 @@ const {
   getOvertimeRecords,
   getOvertimeResponses,
   getStaffOvertimeRecords,
-  completeOvertime
+  completeOvertime,
+  updateOvertimeHours
 } = require('../controllers/staffController');
 const auth = require('../middleware/auth');
 const checkSubscription = require('../middleware/checkSubscription');
@@ -49,6 +50,7 @@ router.get('/my-overtime', auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER'
 router.patch('/set-overtime-rate/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Overtime Rate'), setOvertimeRate);
 router.post('/overtime-record/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, activityLogger('Overtime Record'), addOvertimeRecord);
 router.patch('/overtime/:requestId/complete', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, completeOvertime);
+router.patch('/overtime/:requestId/update-hours', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, updateOvertimeHours);
 router.get('/staff-overtime-records/:staffId', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, getStaffOvertimeRecords);
 
 module.exports = router;

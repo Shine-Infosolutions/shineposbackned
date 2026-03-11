@@ -6,17 +6,12 @@ const createStaff = async (req, res) => {
     const { email, password, name, role, permissions, phone, salaryType, salaryAmount, hourlyRate, dayRate, overtimeRate, shiftSchedule } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     
-    
-    
-    
-    
     if (!restaurantSlug) {
       return res.status(400).json({ error: 'Restaurant slug is required' });
     }
     
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
-    // Check if staff with email already exists
     const existingStaff = await StaffModel.findOne({ email });
     if (existingStaff) {
       return res.status(400).json({ error: 'Staff member with this email already exists' });
@@ -49,7 +44,6 @@ const createStaff = async (req, res) => {
     const staff = new StaffModel(staffData);
     await staff.save();
     
-    // Force save shiftSchedule using MongoDB collection directly
     if (staffData.shiftSchedule) {
       await StaffModel.collection.updateOne(
         { _id: staff._id },
@@ -92,10 +86,6 @@ const updateStaff = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
-    
-    
-    
-    
     const staff = await StaffModel.findById(id);
     if (!staff) {
       return res.status(404).json({ error: 'Staff member not found' });
@@ -106,13 +96,9 @@ const updateStaff = async (req, res) => {
       updateData.password = await bcrypt.hash(updateData.password, 10);
     }
     
-    
-    
-    
     Object.assign(staff, updateData);
     await staff.save();
     
-    // Force save shiftSchedule using MongoDB collection directly
     if (updateData.shiftSchedule) {
       await StaffModel.collection.updateOne(
         { _id: staff._id },
@@ -160,14 +146,33 @@ const assignOvertime = async (req, res) => {
     const currentUserId = req.user.userId || req.user.id;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    const AttendanceModel = TenantModelFactory.getAttendanceModel(restaurantSlug);
     
     const staff = await StaffModel.findById(id);
     if (!staff) {
       return res.status(400).json({ error: 'Staff member not found' });
     }
 
+    const attendanceDate = new Date(date);
+    attendanceDate.setHours(0, 0, 0, 0);
+    const nextDay = new Date(attendanceDate);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const attendance = await AttendanceModel.findOne({
+      staffId: id,
+      date: { $gte: attendanceDate, $lt: nextDay }
+    });
+
+    if (!attendance || !attendance.checkIn) {
+      return res.status(400).json({ error: 'Staff member has not checked in for this date' });
+    }
+
+    if (attendance.checkOut) {
+      return res.status(400).json({ error: 'Staff member has already checked out' });
+    }
+
     const rate = staff.overtimeRate || 0;
-    const amount = hours * rate;
+    const amount = Math.round((hours * rate) * 100) / 100;
 
     const overtime = new OvertimeModel({
       staffId: id,
@@ -194,7 +199,7 @@ const assignOvertime = async (req, res) => {
 const respondToOvertime = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { status } = req.body;
+    const { status, actualHoursWorked } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId;
     const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
@@ -219,6 +224,12 @@ const respondToOvertime = async (req, res) => {
     if (overtime.status !== 'pending' && status === 'declined') {
       overtime.status = 'declined';
       overtime.respondedAt = new Date();
+      overtime.declinedAt = new Date();
+      if (actualHoursWorked) {
+        overtime.actualHoursWorked = actualHoursWorked;
+        overtime.actualRate = overtime.rate;
+        overtime.amount = Math.round((actualHoursWorked * (overtime.rate || 0)) * 100) / 100;
+      }
       await overtime.save();
       return res.json({ message: 'Overtime declined successfully', overtime });
     }
@@ -399,20 +410,31 @@ const getOvertimeRecords = async (req, res) => {
 const completeOvertime = async (req, res) => {
   try {
     const { requestId } = req.params;
+    const { actualHoursWorked } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
     
-    const overtime = await OvertimeModel.findByIdAndUpdate(
-      requestId,
-      { status: 'completed', completedAt: new Date() },
-      { new: true }
-    );
-    
+    const overtime = await OvertimeModel.findById(requestId);
     if (!overtime) {
       return res.status(404).json({ error: 'Overtime record not found' });
     }
+    
+    const finalActualHours = actualHoursWorked || overtime.hours;
+    const finalAmount = Math.round((finalActualHours * (overtime.rate || 0)) * 100) / 100;
+    
+    const updatedOvertime = await OvertimeModel.findByIdAndUpdate(
+      requestId,
+      { 
+        status: 'completed', 
+        completedAt: new Date(),
+        actualHoursWorked: finalActualHours,
+        actualRate: overtime.rate,
+        amount: finalAmount
+      },
+      { new: true }
+    );
 
-    res.json({ message: 'Overtime marked as completed', overtime });
+    res.json({ message: 'Overtime marked as completed', overtime: updatedOvertime });
   } catch (error) {
     console.error('Complete overtime error:', error);
     res.status(500).json({ error: 'Failed to complete overtime' });
@@ -448,6 +470,32 @@ const getOvertimeResponses = async (req, res) => {
   }
 };
 
+const updateOvertimeHours = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { hours } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime request not found' });
+    }
+    
+    const newHours = Number(hours) || 0;
+    const newAmount = newHours * (overtime.rate || 0);
+    
+    overtime.hours = newHours;
+    overtime.amount = newAmount;
+    await overtime.save();
+    
+    res.json({ message: 'Overtime hours updated successfully', overtime });
+  } catch (error) {
+    console.error('Update overtime hours error:', error);
+    res.status(500).json({ error: 'Failed to update overtime hours' });
+  }
+};
+
 module.exports = {
   createStaff,
   getStaff,
@@ -462,5 +510,6 @@ module.exports = {
   getOvertimeRecords,
   getOvertimeResponses,
   getStaffOvertimeRecords,
-  completeOvertime
+  completeOvertime,
+  updateOvertimeHours
 };
