@@ -173,6 +173,10 @@ const assignOvertime = async (req, res) => {
 
     const rate = staff.overtimeRate || 0;
     const amount = Math.round((hours * rate) * 100) / 100;
+    
+    const hoursH = Math.floor(hours);
+    const hoursM = Math.round((hours - hoursH) * 60);
+    const hoursFormatted = `${hoursH}:${String(hoursM).padStart(2, '0')}`;
 
     const overtime = new OvertimeModel({
       staffId: id,
@@ -180,7 +184,7 @@ const assignOvertime = async (req, res) => {
       date,
       startTime,
       endTime,
-      hours,
+      hours: hoursFormatted,
       rate,
       amount,
       reason,
@@ -226,7 +230,10 @@ const respondToOvertime = async (req, res) => {
       overtime.respondedAt = new Date();
       overtime.declinedAt = new Date();
       if (actualHoursWorked) {
-        overtime.actualHoursWorked = actualHoursWorked;
+        const h = Math.floor(actualHoursWorked);
+        const m = Math.round((actualHoursWorked - h) * 60);
+        const actualHoursFormatted = `${h}:${String(m).padStart(2, '0')}`;
+        overtime.actualHoursWorked = actualHoursFormatted;
         overtime.actualRate = overtime.rate;
         overtime.amount = Math.round((actualHoursWorked * (overtime.rate || 0)) * 100) / 100;
       }
@@ -419,7 +426,10 @@ const completeOvertime = async (req, res) => {
       return res.status(404).json({ error: 'Overtime record not found' });
     }
     
-    const finalActualHours = actualHoursWorked || overtime.hours;
+    const finalActualHours = actualHoursWorked || parseFloat(overtime.hours.split(':')[0]) + (parseFloat(overtime.hours.split(':')[1]) / 60);
+    const h = Math.floor(finalActualHours);
+    const m = Math.round((finalActualHours - h) * 60);
+    const actualHoursFormatted = `${h}:${String(m).padStart(2, '0')}`;
     const finalAmount = Math.round((finalActualHours * (overtime.rate || 0)) * 100) / 100;
     
     const updatedOvertime = await OvertimeModel.findByIdAndUpdate(
@@ -427,7 +437,7 @@ const completeOvertime = async (req, res) => {
       { 
         status: 'completed', 
         completedAt: new Date(),
-        actualHoursWorked: finalActualHours,
+        actualHoursWorked: actualHoursFormatted,
         actualRate: overtime.rate,
         amount: finalAmount
       },
@@ -496,6 +506,188 @@ const updateOvertimeHours = async (req, res) => {
   }
 };
 
+const startOvertimeTimer = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime request not found' });
+    }
+    
+    if (overtime.status !== 'accepted') {
+      return res.status(400).json({ error: 'Overtime must be accepted first' });
+    }
+    
+    overtime.status = 'in-progress';
+    overtime.startedAt = new Date();
+    await overtime.save();
+    
+    res.json({ 
+      message: 'Overtime timer started',
+      overtime,
+      timer: {
+        startedAt: overtime.startedAt,
+        assignedHours: parseFloat(overtime.hours),
+        totalSeconds: parseFloat(overtime.hours) * 3600
+      }
+    });
+  } catch (error) {
+    console.error('Start overtime timer error:', error);
+    res.status(500).json({ error: 'Failed to start overtime timer' });
+  }
+};
+
+const getOvertimeTimer = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime request not found' });
+    }
+    
+    let timeRemaining = null;
+    let elapsedTime = null;
+    let percentageComplete = 0;
+    let isCompleted = false;
+    
+    if (overtime.status === 'in-progress' && overtime.startedAt) {
+      const now = new Date();
+      const assignedHours = parseFloat(overtime.hours);
+      const totalMs = assignedHours * 60 * 60 * 1000;
+      const elapsedMs = now - overtime.startedAt;
+      const remainingMs = totalMs - elapsedMs;
+      
+      elapsedTime = Math.round(elapsedMs / 1000);
+      timeRemaining = Math.max(0, Math.round(remainingMs / 1000));
+      percentageComplete = Math.min(100, (elapsedMs / totalMs) * 100);
+      
+      // Auto-complete if time is up
+      if (timeRemaining <= 0) {
+        overtime.status = 'completed';
+        overtime.completedAt = new Date();
+        overtime.actualHoursWorked = overtime.hours;
+        await overtime.save();
+        isCompleted = true;
+      }
+    }
+    
+    // Format time remaining
+    const hours = Math.floor(timeRemaining / 3600);
+    const minutes = Math.floor((timeRemaining % 3600) / 60);
+    const seconds = timeRemaining % 60;
+    const timeRemainingFormatted = `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    
+    res.json({
+      overtime,
+      timer: {
+        status: overtime.status,
+        isCompleted,
+        assignedHours: parseFloat(overtime.hours),
+        elapsedSeconds: elapsedTime,
+        remainingSeconds: timeRemaining,
+        remainingFormatted: timeRemainingFormatted,
+        percentageComplete: percentageComplete.toFixed(2),
+        startedAt: overtime.startedAt,
+        completedAt: overtime.completedAt,
+        actualHoursWorked: overtime.actualHoursWorked
+      }
+    });
+  } catch (error) {
+    console.error('Get overtime timer error:', error);
+    res.status(500).json({ error: 'Failed to get overtime timer' });
+  }
+};
+
+const completeOvertimeManually = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime request not found' });
+    }
+    
+    if (overtime.status !== 'in-progress') {
+      return res.status(400).json({ error: 'Overtime is not in progress' });
+    }
+    
+    overtime.completedAt = new Date();
+    const actualHours = (overtime.completedAt - overtime.startedAt) / (1000 * 60 * 60);
+    const h = Math.floor(actualHours);
+    const m = Math.round((actualHours - h) * 60);
+    overtime.actualHoursWorked = `${h}:${String(m).padStart(2, '0')}`;
+    overtime.status = 'completed';
+    overtime.amount = Math.round((actualHours * (overtime.rate || 0)) * 100) / 100;
+    
+    await overtime.save();
+    
+    res.json({
+      message: 'Overtime completed successfully',
+      overtime,
+      summary: {
+        assignedHours: parseFloat(overtime.hours),
+        actualHours: actualHours.toFixed(2),
+        startedAt: overtime.startedAt,
+        completedAt: overtime.completedAt,
+        totalAmount: overtime.amount
+      }
+    });
+  } catch (error) {
+    console.error('Complete overtime manually error:', error);
+    res.status(500).json({ error: 'Failed to complete overtime' });
+  }
+};
+
+const stopOvertimeTimer = async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
+    
+    const overtime = await OvertimeModel.findById(requestId);
+    if (!overtime) {
+      return res.status(404).json({ error: 'Overtime request not found' });
+    }
+    
+    if (overtime.status !== 'accepted' && overtime.status !== 'in-progress') {
+      return res.status(400).json({ error: 'Overtime is not running' });
+    }
+    
+    const stoppedAt = new Date();
+    const startTime = overtime.respondedAt || overtime.createdAt;
+    const actualHours = (stoppedAt - startTime) / (1000 * 60 * 60);
+    const h = Math.floor(actualHours);
+    const m = Math.round((actualHours - h) * 60);
+    const s = Math.round(((actualHours - h) * 60 - m) * 60);
+    const actualHoursFormatted = `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    
+    overtime.completedAt = stoppedAt;
+    overtime.actualHoursWorked = actualHoursFormatted;
+    overtime.status = 'completed';
+    overtime.amount = Math.round((actualHours * (overtime.rate || 0)) * 100) / 100;
+    
+    await overtime.save();
+    
+    res.json({
+      message: 'Overtime timer stopped and marked as completed',
+      overtime,
+      actualHoursWorked: actualHoursFormatted,
+      totalAmount: overtime.amount
+    });
+  } catch (error) {
+    console.error('Stop overtime timer error:', error);
+    res.status(500).json({ error: 'Failed to stop overtime timer' });
+  }
+};
+
 module.exports = {
   createStaff,
   getStaff,
@@ -511,5 +703,9 @@ module.exports = {
   getOvertimeResponses,
   getStaffOvertimeRecords,
   completeOvertime,
-  updateOvertimeHours
+  updateOvertimeHours,
+  startOvertimeTimer,
+  getOvertimeTimer,
+  completeOvertimeManually,
+  stopOvertimeTimer
 };

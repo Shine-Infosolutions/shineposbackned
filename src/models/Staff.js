@@ -78,11 +78,14 @@ const staffSchema = new mongoose.Schema({
     reason: String,
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'declined'],
+      enum: ['pending', 'accepted', 'declined', 'in-progress', 'completed'],
       default: 'pending'
     },
     assignedBy: mongoose.Schema.Types.ObjectId,
     respondedAt: Date,
+    startedAt: Date,
+    completedAt: Date,
+    actualHours: Number,
     createdAt: { type: Date, default: Date.now }
   }],
   overtimeRecords: [{
