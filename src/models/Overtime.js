@@ -14,7 +14,7 @@ const overtimeSchema = new mongoose.Schema({
   startTime: String,
   endTime: String,
   hours: {
-    type: Number,
+    type: String,
     required: true
   },
   rate: {
@@ -35,8 +35,8 @@ const overtimeSchema = new mongoose.Schema({
   assignedBy: mongoose.Schema.Types.ObjectId,
   notes: String,
   actualHoursWorked: {
-    type: Number,
-    default: 0
+    type: String,
+    default: '0:00'
   },
   actualRate: {
     type: Number,
