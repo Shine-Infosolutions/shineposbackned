@@ -1,5 +1,13 @@
 # Changelog
 
+## v4.6.0 (27.1.2026)
+
+- fixed correct break line condition (#274)  ([OverSamu](https://github.com/OverSamu))
+- added support for "viscii" encoding (#272) ([hoanglam10499](https://github.com/hoanglam10499))
+- added 'Bematech MP-4200 TH' and 'Elgin i8' printers to tested printers, ([andernunes](https://github.com/andernunes))
+- implement line spacing and line height. (#275) ([jwahdatehagh](https://github.com/jwahdatehagh))
+- updated readme to include 'width' config
+
 ## v4.5.0 (27.5.2025)
 
 - added support for CUSTOM printer (#270) ([yoyo53](https://github.com/yoyo53)),

@@ -91,6 +91,7 @@ module.exports = {
   CODE_PAGE_CHINA: Buffer.from([0x1b, 0x52, 0x0F]),
   CODE_PAGE_HK_TW: Buffer.from([0x1b, 0x52, 0x00]),
   CODE_PAGE_TCVN_VIETNAMESE: Buffer.from([0x1b, 0x74, 52]),
+  CODE_PAGE_VISCII: Buffer.from([0x1b, 0x74, 52]),
 
   // Character code pages / iconv name of code table.
   // Only code pages supported by iconv-lite:
@@ -135,6 +136,7 @@ module.exports = {
     TCVN_VIETNAMESE: 'tcvn',
     TIS11_THAI: 'TIS-620',
     TIS18_THAI: 'TIS-620',
+    VISCII: 'viscii'
   },
 
   // Barcode format
