@@ -7,6 +7,7 @@ const overtimeSchema = require('./Overtime');
 const advanceSalarySchema = require('./AdvanceSalary');
 const pfDeductionSchema = require('./PFDeduction');
 const bonusSchema = require('./Bonus');
+const holidaySchema = require('./Holiday');
 
 // User Schema for tenant-specific collections
 const createUserSchema = () => new mongoose.Schema({
@@ -1080,6 +1081,15 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getHolidayModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_holidays`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('holidays', holidaySchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getModel(restaurantSlug, modelName, schema) {
     const methodMap = {
       'Order': 'getOrderModel',
@@ -1122,6 +1132,7 @@ class TenantModelFactory {
     this.getAdvanceSalaryModel(restaurantSlug);
     this.getPFDeductionModel(restaurantSlug);
     this.getBonusModel(restaurantSlug);
+    this.getHolidayModel(restaurantSlug);
   }
 }
 

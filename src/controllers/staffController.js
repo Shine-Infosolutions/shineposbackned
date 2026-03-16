@@ -188,12 +188,13 @@ const assignOvertime = async (req, res) => {
       rate,
       amount,
       reason,
-      status: 'pending',
+      status: 'accepted',
+      respondedAt: new Date(),
       assignedBy: currentUserId
     });
     await overtime.save();
 
-    res.json({ message: 'Overtime assigned successfully', overtime });
+    res.json({ message: 'Overtime assigned and accepted automatically', overtime });
   } catch (error) {
     console.error('Assign overtime error:', error);
     res.status(500).json({ error: 'Failed to assign overtime' });
@@ -203,14 +204,10 @@ const assignOvertime = async (req, res) => {
 const respondToOvertime = async (req, res) => {
   try {
     const { requestId } = req.params;
-    const { status, actualHoursWorked } = req.body;
+    const { actualHoursWorked } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId;
     const OvertimeModel = TenantModelFactory.getOvertimeModel(restaurantSlug);
-    
-    if (!['accepted', 'declined'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
     
     const overtime = await OvertimeModel.findById(requestId);
     if (!overtime) {
@@ -221,35 +218,23 @@ const respondToOvertime = async (req, res) => {
       return res.status(403).json({ error: 'Can only respond to your own overtime requests' });
     }
     
-    if (overtime.status === 'completed' || overtime.status === 'declined') {
-      return res.status(400).json({ error: 'Cannot change status of completed or declined overtime' });
+    if (overtime.status === 'completed') {
+      return res.status(400).json({ error: 'Cannot change status of completed overtime' });
     }
     
-    if (overtime.status !== 'pending' && status === 'declined') {
-      overtime.status = 'declined';
-      overtime.respondedAt = new Date();
-      overtime.declinedAt = new Date();
-      if (actualHoursWorked) {
-        const h = Math.floor(actualHoursWorked);
-        const m = Math.round((actualHoursWorked - h) * 60);
-        const actualHoursFormatted = `${h}:${String(m).padStart(2, '0')}`;
-        overtime.actualHoursWorked = actualHoursFormatted;
-        overtime.actualRate = overtime.rate;
-        overtime.amount = Math.round((actualHoursWorked * (overtime.rate || 0)) * 100) / 100;
-      }
-      await overtime.save();
-      return res.json({ message: 'Overtime declined successfully', overtime });
+    if (actualHoursWorked) {
+      const h = Math.floor(actualHoursWorked);
+      const m = Math.round((actualHoursWorked - h) * 60);
+      const actualHoursFormatted = `${h}:${String(m).padStart(2, '0')}`;
+      overtime.actualHoursWorked = actualHoursFormatted;
+      overtime.actualRate = overtime.rate;
+      overtime.amount = Math.round((actualHoursWorked * (overtime.rate || 0)) * 100) / 100;
     }
     
-    if (overtime.status !== 'pending') {
-      return res.status(400).json({ error: 'Overtime request already responded' });
-    }
-    
-    overtime.status = status;
     overtime.respondedAt = new Date();
     await overtime.save();
 
-    res.json({ message: `Overtime ${status} successfully`, overtime });
+    res.json({ message: 'Overtime updated successfully', overtime });
   } catch (error) {
     console.error('Respond to overtime error:', error);
     res.status(500).json({ error: 'Failed to respond to overtime' });

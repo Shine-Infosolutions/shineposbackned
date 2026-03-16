@@ -28,8 +28,8 @@ const overtimeSchema = new mongoose.Schema({
   reason: String,
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'declined'],
-    default: 'pending'
+    enum: ['accepted', 'completed', 'in-progress'],
+    default: 'accepted'
   },
   respondedAt: Date,
   assignedBy: mongoose.Schema.Types.ObjectId,
@@ -42,7 +42,6 @@ const overtimeSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  declinedAt: Date,
   completedAt: Date,
   createdAt: {
     type: Date,

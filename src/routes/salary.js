@@ -17,7 +17,12 @@ const {
   addBonus,
   getBonusRecords,
   updateBonusStatus,
-  deleteBonus
+  deleteBonus,
+  addHoliday,
+  getHolidays,
+  updateHoliday,
+  deleteHoliday,
+  checkHolidayForDate
 } = require('../controllers/salaryController');
 
 const adminManager = auth(['RESTAURANT_ADMIN', 'MANAGER']);
@@ -46,5 +51,12 @@ router.get('/bonus/all',                     adminManager, checkSubscription, te
 router.get('/bonus/:staffId',                adminManager, checkSubscription, tenantMiddleware, getBonusRecords);
 router.patch('/bonus/status/:bonusId',       adminManager, checkSubscription, tenantMiddleware, updateBonusStatus);
 router.delete('/bonus/:bonusId',             adminManager, checkSubscription, tenantMiddleware, deleteBonus);
+
+// Holiday Management
+router.post('/holiday/add',                  adminManager, checkSubscription, tenantMiddleware, addHoliday);
+router.get('/holiday/all',                   adminManager, checkSubscription, tenantMiddleware, getHolidays);
+router.put('/holiday/:holidayId',            adminManager, checkSubscription, tenantMiddleware, updateHoliday);
+router.delete('/holiday/:holidayId',         adminManager, checkSubscription, tenantMiddleware, deleteHoliday);
+router.get('/holiday/check',                 adminManager, checkSubscription, tenantMiddleware, checkHolidayForDate);
 
 module.exports = router;

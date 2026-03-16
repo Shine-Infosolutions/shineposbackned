@@ -65,6 +65,11 @@ const attendanceSchema = new mongoose.Schema({
     approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
     approvedAt: { type: Date }
   },
+  holidayInfo: {
+    isHoliday: { type: Boolean, default: false },
+    holidayName: { type: String },
+    isPaid: { type: Boolean, default: false }
+  },
   location: {
     type: String
   },
