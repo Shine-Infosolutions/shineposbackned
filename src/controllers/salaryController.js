@@ -567,6 +567,171 @@ const deleteBonus = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete bonus' });
   }
 };
+
+// ─── HOLIDAY MANAGEMENT ──────────────────────────────────────────────────────
+
+const addHoliday = async (req, res) => {
+  try {
+    const { name, date, type, description, isRecurring, recurringType, isPaid, applicableRoles } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const currentUserId = req.user.userId || req.user.id;
+
+    if (!name || !date || !type) {
+      return res.status(400).json({ error: 'Name, date, and type are required' });
+    }
+
+    const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+    const holidayDate = new Date(date);
+    const year = holidayDate.getFullYear();
+
+    // Check if holiday already exists for this date
+    const existingHoliday = await HolidayModel.findOne({
+      date: {
+        $gte: new Date(holidayDate.getFullYear(), holidayDate.getMonth(), holidayDate.getDate()),
+        $lt: new Date(holidayDate.getFullYear(), holidayDate.getMonth(), holidayDate.getDate() + 1)
+      }
+    });
+
+    if (existingHoliday) {
+      return res.status(400).json({ error: 'Holiday already exists for this date' });
+    }
+
+    const holiday = await HolidayModel.create({
+      name,
+      date: holidayDate,
+      type,
+      description: description || '',
+      isRecurring: Boolean(isRecurring),
+      recurringType: isRecurring ? recurringType : null,
+      isPaid: isPaid !== undefined ? Boolean(isPaid) : true,
+      applicableRoles: applicableRoles || ['ALL'],
+      year,
+      createdBy: currentUserId
+    });
+
+    res.status(201).json({ 
+      message: 'Holiday added successfully', 
+      holiday 
+    });
+  } catch (error) {
+    console.error('Add holiday error:', error);
+    res.status(500).json({ error: 'Failed to add holiday' });
+  }
+};
+
+const getHolidays = async (req, res) => {
+  try {
+    const { year, month, type, isPaid } = req.query;
+    const restaurantSlug = req.user.restaurantSlug;
+    const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+
+    let query = { isActive: true };
+    
+    if (year) query.year = parseInt(year);
+    if (type) query.type = type;
+    if (isPaid !== undefined) query.isPaid = Boolean(isPaid);
+    
+    if (month && year) {
+      const startDate = new Date(parseInt(year), parseInt(month) - 1, 1);
+      const endDate = new Date(parseInt(year), parseInt(month), 0, 23, 59, 59);
+      query.date = { $gte: startDate, $lte: endDate };
+    }
+
+    const holidays = await HolidayModel.find(query)
+      .populate('createdBy', 'name')
+      .sort({ date: 1 });
+
+    const summary = {
+      totalHolidays: holidays.length,
+      paidHolidays: holidays.filter(h => h.isPaid).length,
+      unpaidHolidays: holidays.filter(h => !h.isPaid).length,
+      byType: holidays.reduce((acc, holiday) => {
+        acc[holiday.type] = (acc[holiday.type] || 0) + 1;
+        return acc;
+      }, {})
+    };
+
+    res.json({ holidays, summary });
+  } catch (error) {
+    console.error('Get holidays error:', error);
+    res.status(500).json({ error: 'Failed to fetch holidays' });
+  }
+};
+
+const updateHoliday = async (req, res) => {
+  try {
+    const { holidayId } = req.params;
+    const { name, date, type, description, isPaid, applicableRoles, isActive } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+
+    const holiday = await HolidayModel.findById(holidayId);
+    if (!holiday) return res.status(404).json({ error: 'Holiday not found' });
+
+    if (name) holiday.name = name;
+    if (date) {
+      holiday.date = new Date(date);
+      holiday.year = new Date(date).getFullYear();
+    }
+    if (type) holiday.type = type;
+    if (description !== undefined) holiday.description = description;
+    if (isPaid !== undefined) holiday.isPaid = Boolean(isPaid);
+    if (applicableRoles) holiday.applicableRoles = applicableRoles;
+    if (isActive !== undefined) holiday.isActive = Boolean(isActive);
+
+    await holiday.save();
+    res.json({ message: 'Holiday updated successfully', holiday });
+  } catch (error) {
+    console.error('Update holiday error:', error);
+    res.status(500).json({ error: 'Failed to update holiday' });
+  }
+};
+
+const deleteHoliday = async (req, res) => {
+  try {
+    const { holidayId } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+
+    const holiday = await HolidayModel.findByIdAndDelete(holidayId);
+    if (!holiday) return res.status(404).json({ error: 'Holiday not found' });
+
+    res.json({ message: 'Holiday deleted successfully' });
+  } catch (error) {
+    console.error('Delete holiday error:', error);
+    res.status(500).json({ error: 'Failed to delete holiday' });
+  }
+};
+
+const checkHolidayForDate = async (req, res) => {
+  try {
+    const { date } = req.query;
+    const restaurantSlug = req.user.restaurantSlug;
+    const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+
+    if (!date) {
+      return res.status(400).json({ error: 'Date parameter required' });
+    }
+
+    const checkDate = new Date(date);
+    const holiday = await HolidayModel.findOne({
+      date: {
+        $gte: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate()),
+        $lt: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() + 1)
+      },
+      isActive: true
+    });
+
+    res.json({ 
+      isHoliday: !!holiday,
+      holiday: holiday || null,
+      shouldDeductSalary: holiday ? !holiday.isPaid : true
+    });
+  } catch (error) {
+    console.error('Check holiday error:', error);
+    res.status(500).json({ error: 'Failed to check holiday' });
+  }
+};
 module.exports = {
   holdAdvanceSalary,
   releaseAdvanceSalary,
@@ -581,5 +746,10 @@ module.exports = {
   addBonus,
   getBonusRecords,
   updateBonusStatus,
-  deleteBonus
+  deleteBonus,
+  addHoliday,
+  getHolidays,
+  updateHoliday,
+  deleteHoliday,
+  checkHolidayForDate
 };

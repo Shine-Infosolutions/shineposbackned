@@ -161,6 +161,36 @@ class AttendanceUtils {
       errors
     };
   }
+
+  static async checkHolidayForDate(date, restaurantSlug, TenantModelFactory) {
+    try {
+      const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+      const checkDate = new Date(date);
+      
+      const holiday = await HolidayModel.findOne({
+        date: {
+          $gte: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate()),
+          $lt: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() + 1)
+        },
+        isActive: true
+      });
+
+      return {
+        isHoliday: !!holiday,
+        holiday: holiday || null,
+        isPaidHoliday: holiday ? holiday.isPaid : false,
+        shouldDeductSalary: holiday ? !holiday.isPaid : true
+      };
+    } catch (error) {
+      console.error('Holiday check error:', error);
+      return {
+        isHoliday: false,
+        holiday: null,
+        isPaidHoliday: false,
+        shouldDeductSalary: true
+      };
+    }
+  }
 }
 
 module.exports = AttendanceUtils;
