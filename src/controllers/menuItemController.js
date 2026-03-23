@@ -1,5 +1,6 @@
 const cloudinary = require('../config/cloudinary');
 const Restaurant = require('../models/Restaurant');
+const TenantModelFactory = require('../models/TenantModelFactory');
 
 const createMenuItem = async (req, res) => {
     try {
@@ -7,23 +8,31 @@ const createMenuItem = async (req, res) => {
             return res.status(500).json({ error: 'Tenant models not initialized' });
         }
         
-        const { itemName, categoryID, price, status, imageUrl, videoUrl, timeToPrepare, foodType, addon, variation } = req.body;
+        const { itemName, categoryID, price, status, imageUrl, videoUrl, timeToPrepare, foodType, addon, variation, ingredients } = req.body;
         const MenuItem = req.tenantModels.MenuItem;
         
         const menuItem = new MenuItem({
-            itemName,
-            categoryID,
-            price,
-            status,
-            imageUrl,
-            videoUrl,
-            timeToPrepare,
-            foodType,
-            addon,
-            variation
+            itemName, categoryID, price, status, imageUrl, videoUrl, timeToPrepare, foodType, addon, variation
         });
         
         await menuItem.save();
+
+        // Auto-create/update recipe if ingredients provided
+        if (ingredients && ingredients.length > 0) {
+            const restaurantSlug = req.user.restaurantSlug;
+            const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+            const normalizedIngredients = ingredients.map(ing => ({
+                inventoryItemId: new (require('mongoose').Types.ObjectId)(ing.inventoryItemId),
+                quantity: Number(ing.quantity),
+                unit: String(ing.unit)
+            }));
+            await RecipeModel.collection.findOneAndReplace(
+                { menuItemId: menuItem._id },
+                { menuItemId: menuItem._id, ingredients: normalizedIngredients, createdAt: new Date(), updatedAt: new Date() },
+                { upsert: true }
+            );
+        }
+
         res.status(201).json({ message: 'Menu item created successfully', menuItem });
     } catch (error) {
         console.error('Create menu item error:', error);
@@ -61,6 +70,12 @@ const getMenuItemById = async (req, res) => {
         if (!menuItem) {
             return res.status(404).json({ error: 'Menu item not found' });
         }
+
+        // Attach recipe/ingredients if exists
+        const restaurantSlug = req.user.restaurantSlug;
+        const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+        const recipe = await RecipeModel.findOne({ menuItemId: id }).lean();
+        menuItem.ingredients = recipe ? recipe.ingredients : [];
         
         res.json({ menuItem });
     } catch (error) {
@@ -73,38 +88,53 @@ const updateMenuItem = async (req, res) => {
     try {
         const { id } = req.params;
         const MenuItem = req.tenantModels.MenuItem;
-        
-        const updateData = {
-            itemName: req.body.itemName,
-            categoryID: req.body.categoryID,
-            status: req.body.status,
-            imageUrl: req.body.imageUrl,
-            videoUrl: req.body.videoUrl,
-            timeToPrepare: req.body.timeToPrepare,
-            foodType: req.body.foodType,
-            addon: req.body.addon,
-            variation: req.body.variation,
-            marginCostPercentage: req.body.marginCostPercentage
-        };
-        
+
+        // Only set fields that are actually provided in the request
+        const updateData = {};
+        const fields = ['itemName', 'categoryID', 'status', 'imageUrl', 'videoUrl', 'timeToPrepare', 'foodType', 'addon', 'variation', 'marginCostPercentage'];
+        fields.forEach(field => {
+            if (req.body[field] !== undefined) updateData[field] = req.body[field];
+        });
+
         const menuItem = await MenuItem.findByIdAndUpdate(
             id,
-            updateData,
-            { new: true, runValidators: true }
+            { $set: updateData },
+            { new: true }
         );
         
         if (!menuItem) {
             return res.status(404).json({ error: 'Menu item not found' });
         }
-        
+
         await menuItem.populate('categoryID');
         await menuItem.populate('addon');
         await menuItem.populate('variation');
+
+        // Auto-create/update recipe if ingredients provided
+        if (req.body.ingredients !== undefined) {
+            const restaurantSlug = req.user.restaurantSlug;
+            const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+            if (req.body.ingredients && req.body.ingredients.length > 0) {
+                const ingredients = req.body.ingredients.map(ing => ({
+                    inventoryItemId: new (require('mongoose').Types.ObjectId)(ing.inventoryItemId),
+                    quantity: Number(ing.quantity),
+                    unit: String(ing.unit)
+                }));
+                // Use native driver to bypass all Mongoose validation/casting issues
+                const result = await RecipeModel.collection.findOneAndReplace(
+                    { menuItemId: new (require('mongoose').Types.ObjectId)(id) },
+                    { menuItemId: new (require('mongoose').Types.ObjectId)(id), ingredients, updatedAt: new Date(), createdAt: new Date() },
+                    { upsert: true, returnDocument: 'after' }
+                );
+            } else {
+                await RecipeModel.collection.deleteOne({ menuItemId: new (require('mongoose').Types.ObjectId)(id) });
+            }
+        }
         
         res.json({ message: 'Menu item updated successfully', menuItem });
     } catch (error) {
         console.error('Update menu item error:', error);
-        res.status(500).json({ error: 'Failed to update menu item' });
+        res.status(500).json({ error: 'Failed to update menu item', details: error.message });
     }
 };
 

@@ -1,8 +1,4 @@
 const mongoose = require('mongoose');
-const recipeSchema = require('./Recipe');
-const wastageSchema = require('./Wastage');
-const { vendorSchema, vendorPriceSchema } = require('./Vendor');
-const purchaseOrderSchema = require('./PurchaseOrder');
 const overtimeSchema = require('./Overtime');
 const advanceSalarySchema = require('./AdvanceSalary');
 const pfDeductionSchema = require('./PFDeduction');
@@ -812,24 +808,6 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
-  getMenuItemModel(restaurantSlug) {
-    const modelKey = `${restaurantSlug}_menuitems`;
-    if (!this.models.has(modelKey)) {
-      const connection = this.getTenantConnection(restaurantSlug);
-      const menuItemSchema = new mongoose.Schema({
-        itemName: { type: String, required: true, trim: true },
-        categoryID: { type: mongoose.Schema.Types.ObjectId, ref: 'categories', required: true },
-        status: { type: String, enum: ['active', 'inactive'], default: 'active' },
-        imageUrl: { type: String },
-        videoUrl: { type: String },
-        timeToPrepare: { type: Number, required: true },
-        foodType: { type: String, enum: ['veg', 'non-veg'], required: true }
-      }, { timestamps: true });
-      this.models.set(modelKey, connection.model('menuitems', menuItemSchema));
-    }
-    return this.models.get(modelKey);
-  }
-
   getCategoryModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_categories`;
     if (!this.models.has(modelKey)) {
@@ -936,11 +914,36 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getInventoryLogModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_inventorylogs`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      const schema = new mongoose.Schema({
+        inventoryItemId: mongoose.Schema.Types.ObjectId,
+        itemName: String,
+        type: { type: String, enum: ['restock', 'order_deduction', 'wastage'], required: true },
+        quantity: Number,
+        note: String,
+        orderId: mongoose.Schema.Types.ObjectId
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('inventorylogs', schema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getRecipeModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_recipes`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('recipes', recipeSchema));
+      const schema = new mongoose.Schema({
+        menuItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        ingredients: [{
+          inventoryItemId: mongoose.Schema.Types.ObjectId,
+          quantity: Number,
+          unit: String
+        }]
+      }, { timestamps: true, strict: false });
+      this.models.set(modelKey, connection.model('recipes', schema));
     }
     return this.models.get(modelKey);
   }
@@ -949,7 +952,14 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_wastage`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('wastage', wastageSchema));
+      const schema = new mongoose.Schema({
+        inventoryItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        quantity: { type: Number, required: true, min: 0 },
+        reason: { type: String, required: true, enum: ['Expired','Spoiled','Overcooked','Customer Return','Preparation Error','Equipment Failure','Other'] },
+        date: { type: Date, required: true },
+        recordedBy: { type: mongoose.Schema.Types.ObjectId }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('wastage', schema));
     }
     return this.models.get(modelKey);
   }
@@ -958,7 +968,17 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_vendors`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('vendors', vendorSchema));
+      const schema = new mongoose.Schema({
+        name: { type: String, required: true, trim: true },
+        contact: { type: String, required: true },
+        email: { type: String, trim: true },
+        address: { type: String, trim: true },
+        rating: { type: Number, min: 1, max: 5, default: 5 },
+        paymentTerms: String,
+        deliveryTime: String,
+        isActive: { type: Boolean, default: true }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('vendors', schema));
     }
     return this.models.get(modelKey);
   }
@@ -967,7 +987,14 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_vendorprices`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('vendorprices', vendorPriceSchema));
+      const schema = new mongoose.Schema({
+        vendorId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        inventoryItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        price: { type: Number, required: true, min: 0 },
+        minOrderQty: { type: Number, default: 1 },
+        validUntil: { type: Date, required: true }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('vendorprices', schema));
     }
     return this.models.get(modelKey);
   }
@@ -976,7 +1003,30 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_purchaseorders`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('purchaseorders', purchaseOrderSchema));
+      const schema = new mongoose.Schema({
+        orderNumber: { type: String, unique: true },
+        vendorId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        vendorName: { type: String, required: true },
+        items: [{
+          inventoryItemId: { type: mongoose.Schema.Types.ObjectId, required: true },
+          itemName: { type: String, required: true },
+          quantity: { type: Number, required: true, min: 1 },
+          unitPrice: { type: Number, required: true, min: 0 },
+          total: { type: Number, required: true, min: 0 }
+        }],
+        totalAmount: { type: Number, required: true, min: 0 },
+        status: { type: String, enum: ['pending','approved','ordered','delivered','cancelled'], default: 'pending' },
+        notes: String,
+        createdBy: { type: mongoose.Schema.Types.ObjectId }
+      }, { timestamps: true });
+      schema.pre('save', async function(next) {
+        if (!this.orderNumber) {
+          const count = await this.constructor.countDocuments();
+          this.orderNumber = `PO${String(count + 1).padStart(6, '0')}`;
+        }
+        next();
+      });
+      this.models.set(modelKey, connection.model('purchaseorders', schema));
     }
     return this.models.get(modelKey);
   }

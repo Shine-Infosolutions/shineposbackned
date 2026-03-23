@@ -22,7 +22,8 @@ const {
   // Purchase Orders
   createPurchaseOrder,
   getPurchaseOrders,
-  updatePurchaseOrderStatus
+  updatePurchaseOrderStatus,
+  getStockLogs
 } = require("../controllers/inventoryController");
 const auth = require("../middleware/auth");
 const tenantMiddleware = require("../middleware/tenant");
@@ -117,5 +118,8 @@ router.get("/sales-data", auth(["RESTAURANT_ADMIN", "STAFF"]), tenantMiddleware,
 router.get("/purchase-orders", auth(["RESTAURANT_ADMIN"]), tenantMiddleware, getPurchaseOrders);
 router.post("/purchase-orders", auth(["RESTAURANT_ADMIN"]), tenantMiddleware, createPurchaseOrder);
 router.patch("/purchase-orders/:id", auth(["RESTAURANT_ADMIN"]), tenantMiddleware, updatePurchaseOrderStatus);
+
+// Stock Logs
+router.get("/stock-logs", auth(["RESTAURANT_ADMIN", "MANAGER"]), tenantMiddleware, getStockLogs);
 
 module.exports = router;

@@ -3,6 +3,7 @@ const TenantModelFactory = require("../models/TenantModelFactory");
 const Restaurant = require("../models/Restaurant");
 const kotPrinter = require("../utils/kotPrinter");
 const { prepareKOTData } = require("../utils/kotDataHelper");
+const { deductInventoryForItems } = require('./inventoryController');
 
 /* =====================================================
    ADD ITEMS TO EXISTING ORDER
@@ -373,6 +374,11 @@ const createOrder = async (req, res) => {
 
     const order = new OrderModel(orderData);
     const savedOrder = await order.save();
+
+    // Auto-deduct inventory based on recipes
+    deductInventoryForItems(restaurantSlug, orderItems).catch(err =>
+      console.error('Inventory deduction failed:', err)
+    );
 
     // Note: Loyalty points will be credited when payment is processed
 

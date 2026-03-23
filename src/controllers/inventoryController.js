@@ -1,5 +1,39 @@
 const TenantModelFactory = require('../models/TenantModelFactory');
 
+// Shared helper: deduct inventory for a list of order items
+const deductInventoryForItems = async (restaurantSlug, items) => {
+  try {
+    const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+    const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
+    const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
+    const { ObjectId } = require('mongoose').Types;
+    for (const orderItem of items) {
+      const recipe = await RecipeModel.collection.findOne({ menuItemId: new ObjectId(orderItem.menuId) });
+      if (recipe && recipe.ingredients && recipe.ingredients.length > 0) {
+        for (const ingredient of recipe.ingredients) {
+          const deducted = ingredient.quantity * orderItem.quantity;
+          const invItem = await InventoryModel.collection.findOne({ _id: new ObjectId(ingredient.inventoryItemId) });
+          await InventoryModel.collection.updateOne(
+            { _id: new ObjectId(ingredient.inventoryItemId) },
+            { $inc: { currentStock: -deducted } }
+          );
+          await LogModel.collection.insertOne({
+            inventoryItemId: new ObjectId(ingredient.inventoryItemId),
+            itemName: invItem?.name || '',
+            type: 'order_deduction',
+            quantity: -deducted,
+            note: `Order deduction for ${orderItem.name || 'item'} x${orderItem.quantity}`,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error('Inventory deduction error:', err);
+  }
+};
+
 // Recipe Management
 const createRecipe = async (req, res) => {
   try {
@@ -29,24 +63,9 @@ const processOrder = async (req, res) => {
     const { orderId } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
-    const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
-    const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
-    
     const order = await OrderModel.findById(orderId);
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    
-    for (const orderItem of order.items) {
-      const recipe = await RecipeModel.findOne({ menuItemId: orderItem.menuId });
-      if (recipe) {
-        for (const ingredient of recipe.ingredients) {
-          await InventoryModel.findByIdAndUpdate(
-            ingredient.inventoryItemId,
-            { $inc: { currentStock: -(ingredient.quantity * orderItem.quantity) } }
-          );
-        }
-      }
-    }
-    
+    await deductInventoryForItems(restaurantSlug, [...order.items, ...(order.extraItems || [])]);
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -59,14 +78,26 @@ const createWastage = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const WastageModel = TenantModelFactory.getWastageModel(restaurantSlug);
     const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
+    const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
     
     const wastage = new WastageModel({ ...req.body, recordedBy: req.user.id });
     await wastage.save();
     
+    const invItem = await InventoryModel.findById(req.body.inventoryItemId);
     await InventoryModel.findByIdAndUpdate(
       req.body.inventoryItemId,
       { $inc: { currentStock: -req.body.quantity } }
     );
+
+    await LogModel.collection.insertOne({
+      inventoryItemId: wastage.inventoryItemId,
+      itemName: invItem?.name || '',
+      type: 'wastage',
+      quantity: -req.body.quantity,
+      note: `Wastage: ${req.body.reason}`,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
     
     res.json({ wastage });
   } catch (error) {
@@ -195,6 +226,26 @@ const updatePurchaseOrderStatus = async (req, res) => {
   }
 };
 
+const getStockLogs = async (req, res) => {
+  try {
+    const restaurantSlug = req.user.restaurantSlug;
+    const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
+    const { type, itemId, from, to } = req.query;
+    const filter = {};
+    if (type) filter.type = type;
+    if (itemId) filter.inventoryItemId = new (require('mongoose').Types.ObjectId)(itemId);
+    if (from || to) {
+      filter.createdAt = {};
+      if (from) filter.createdAt.$gte = new Date(from);
+      if (to) filter.createdAt.$lte = new Date(to);
+    }
+    const logs = await LogModel.collection.find(filter).sort({ createdAt: -1 }).limit(500).toArray();
+    res.json({ logs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const createInventoryItem = async (req, res) => {
   try {
     const { name, category, currentStock, minStock, unit, costPerUnit, supplier } = req.body;
@@ -266,6 +317,7 @@ const restockItem = async (req, res) => {
     const { quantity } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
+    const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
     
     const inventoryItem = await InventoryModel.findById(id);
     if (!inventoryItem) {
@@ -275,6 +327,16 @@ const restockItem = async (req, res) => {
     inventoryItem.currentStock += quantity;
     inventoryItem.lastRestocked = new Date();
     await inventoryItem.save();
+
+    await LogModel.collection.insertOne({
+      inventoryItemId: inventoryItem._id,
+      itemName: inventoryItem.name,
+      type: 'restock',
+      quantity: quantity,
+      note: `Restocked by ${req.user.name || req.user.email || 'admin'}`,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
 
     res.json({ message: 'Item restocked successfully', inventoryItem });
   } catch (error) {
@@ -322,6 +384,8 @@ const deleteInventoryItem = async (req, res) => {
 };
 
 module.exports = {
+  getStockLogs,
+  deductInventoryForItems,
   createInventoryItem,
   getInventory,
   updateInventoryItem,
