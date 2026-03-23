@@ -20,10 +20,7 @@ const {
   startOvertimeTimer,
   getOvertimeTimer,
   completeOvertimeManually,
-  stopOvertimeTimer,
-  holdAdvanceSalary,
-  releaseAdvanceSalary,
-  setPFDeduction
+  stopOvertimeTimer
 } = require('../controllers/staffController');
 const auth = require('../middleware/auth');
 const checkSubscription = require('../middleware/checkSubscription');
@@ -63,8 +60,5 @@ router.post('/overtime/:requestId/start-timer', auth(['RESTAURANT_ADMIN', 'MANAG
 router.get('/overtime/:requestId/timer', auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER']), checkSubscription, tenantMiddleware, getOvertimeTimer);
 router.patch('/overtime/:requestId/complete-manual', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, completeOvertimeManually);
 router.patch('/overtime/:requestId/stop', auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER']), checkSubscription, tenantMiddleware, stopOvertimeTimer);
-router.patch('/advance-salary/hold/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, holdAdvanceSalary);
-router.patch('/advance-salary/release/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, releaseAdvanceSalary);
-router.patch('/pf-deduction/:id', auth(['RESTAURANT_ADMIN', 'MANAGER']), checkSubscription, tenantMiddleware, setPFDeduction);
 
 module.exports = router;

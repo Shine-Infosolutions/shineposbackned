@@ -59,6 +59,17 @@ const attendanceSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  earlyLeave: {
+    isAllowed: { type: Boolean, default: false },
+    reason: { type: String, default: 'Late check-in compensation' },
+    approvedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff' },
+    approvedAt: { type: Date }
+  },
+  holidayInfo: {
+    isHoliday: { type: Boolean, default: false },
+    holidayName: { type: String },
+    isPaid: { type: Boolean, default: false }
+  },
   location: {
     type: String
   },

@@ -14,7 +14,7 @@ const overtimeSchema = new mongoose.Schema({
   startTime: String,
   endTime: String,
   hours: {
-    type: Number,
+    type: String,
     required: true
   },
   rate: {
@@ -28,21 +28,20 @@ const overtimeSchema = new mongoose.Schema({
   reason: String,
   status: {
     type: String,
-    enum: ['pending', 'accepted', 'declined'],
-    default: 'pending'
+    enum: ['accepted', 'completed', 'in-progress'],
+    default: 'accepted'
   },
   respondedAt: Date,
   assignedBy: mongoose.Schema.Types.ObjectId,
   notes: String,
   actualHoursWorked: {
-    type: Number,
-    default: 0
+    type: String,
+    default: '0:00'
   },
   actualRate: {
     type: Number,
     default: 0
   },
-  declinedAt: Date,
   completedAt: Date,
   createdAt: {
     type: Date,

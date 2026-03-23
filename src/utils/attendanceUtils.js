@@ -65,6 +65,21 @@ class AttendanceUtils {
     return { status: isLate ? 'late' : 'present', lateMinutes };
   }
 
+  static calculateEarlyLeaveEligibility(lateMinutes, standardHours = 8) {
+    // Allow early leave if staff was late by more than 15 minutes
+    if (lateMinutes > 15) {
+      const earlyLeaveMinutes = Math.min(lateMinutes, 60); // Max 1 hour early leave
+      const adjustedWorkingHours = standardHours - (earlyLeaveMinutes / 60);
+      return {
+        isEligible: true,
+        earlyLeaveMinutes,
+        adjustedWorkingHours,
+        reason: `Late by ${lateMinutes} minutes - eligible for ${earlyLeaveMinutes} minutes early leave`
+      };
+    }
+    return { isEligible: false };
+  }
+
   static getScheduledShift(staff, date) {
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayName = dayNames[new Date(date).getDay()];
@@ -145,6 +160,36 @@ class AttendanceUtils {
       isValid: errors.length === 0,
       errors
     };
+  }
+
+  static async checkHolidayForDate(date, restaurantSlug, TenantModelFactory) {
+    try {
+      const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+      const checkDate = new Date(date);
+      
+      const holiday = await HolidayModel.findOne({
+        date: {
+          $gte: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate()),
+          $lt: new Date(checkDate.getFullYear(), checkDate.getMonth(), checkDate.getDate() + 1)
+        },
+        isActive: true
+      });
+
+      return {
+        isHoliday: !!holiday,
+        holiday: holiday || null,
+        isPaidHoliday: holiday ? holiday.isPaid : false,
+        shouldDeductSalary: holiday ? !holiday.isPaid : true
+      };
+    } catch (error) {
+      console.error('Holiday check error:', error);
+      return {
+        isHoliday: false,
+        holiday: null,
+        isPaidHoliday: false,
+        shouldDeductSalary: true
+      };
+    }
   }
 }
 

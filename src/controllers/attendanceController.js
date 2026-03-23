@@ -90,6 +90,7 @@ const checkIn = async (req, res) => {
 const checkOut = async (req, res) => {
   try {
     const { id } = req.params;
+    const { requestEarlyLeave } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
     const currentUserId = req.user.userId || req.user.id;
     
@@ -117,26 +118,54 @@ const checkOut = async (req, res) => {
     }
     
     const checkOutTime = new Date();
+    const scheduledShift = AttendanceUtils.getScheduledShift(staff, today);
+    const standardHours = staff?.workingHours?.standardHours || 8;
+    
+    // Check early leave eligibility if staff was late
+    const earlyLeaveEligibility = AttendanceUtils.calculateEarlyLeaveEligibility(
+      attendance.lateMinutes, 
+      standardHours
+    );
+    
+    // Handle early leave request
+    if (requestEarlyLeave && earlyLeaveEligibility.isEligible) {
+      attendance.earlyLeave = {
+        isAllowed: true,
+        reason: earlyLeaveEligibility.reason,
+        approvedBy: currentUserId,
+        approvedAt: new Date()
+      };
+    }
+    
     attendance.checkOut = checkOutTime;
     attendance.workingHours = AttendanceUtils.calculateWorkingHours(attendance.checkIn, checkOutTime);
     
-    const scheduledShift = AttendanceUtils.getScheduledShift(staff, today);
     const statusResult = AttendanceUtils.determineStatus(
       attendance.checkIn, 
       checkOutTime, 
       scheduledShift?.scheduledStart,
-      staff?.workingHours?.standardHours || 8
+      standardHours
     );
     
     attendance.status = statusResult.status;
     attendance.lateMinutes = statusResult.lateMinutes;
     
     await attendance.save();
-    res.json({ 
+    
+    const response = { 
       message: 'Checked out successfully', 
       checkOutTime,
       workingHours: attendance.workingHours
-    });
+    };
+    
+    if (earlyLeaveEligibility.isEligible) {
+      response.earlyLeaveEligibility = earlyLeaveEligibility;
+      if (requestEarlyLeave) {
+        response.message += ' with early leave approved';
+      }
+    }
+    
+    res.json(response);
   } catch (error) {
     res.status(500).json({ error: 'Check-out failed' });
   }
@@ -166,7 +195,7 @@ const getMyAttendance = async (req, res) => {
       date: { $gte: startDate, $lte: endDate }
     }).sort({ date: -1 });
     
-    const expectedShifts = generateExpectedShifts(staff, startDate, endDate);
+    const expectedShifts = await generateExpectedShiftsWithHolidays(staff, startDate, endDate, restaurantSlug);
     
     // Create a map of actual attendance by date
     const attendanceMap = new Map();
@@ -184,16 +213,25 @@ const getMyAttendance = async (req, res) => {
         expectedShift: {
           startTime: expectedShift.startTime,
           endTime: expectedShift.endTime,
-          expectedHours: expectedShift.expectedHours
+          expectedHours: expectedShift.expectedHours,
+          isHoliday: expectedShift.isHoliday,
+          holidayName: expectedShift.holidayName,
+          isPaidHoliday: expectedShift.isPaidHoliday
         },
         actual: actualAttendance ? {
           checkIn: actualAttendance.checkIn,
           checkOut: actualAttendance.checkOut,
           status: actualAttendance.status,
-          workingHours: actualAttendance.workingHours
+          workingHours: actualAttendance.workingHours,
+          holidayInfo: actualAttendance.holidayInfo
         } : {
-          status: 'absent',
-          workingHours: 0
+          status: expectedShift.isHoliday && expectedShift.isPaidHoliday ? 'on-leave' : 'absent',
+          workingHours: 0,
+          holidayInfo: expectedShift.isHoliday ? {
+            isHoliday: true,
+            holidayName: expectedShift.holidayName,
+            isPaid: expectedShift.isPaidHoliday
+          } : null
         }
       };
     });
@@ -213,17 +251,23 @@ const getMyAttendance = async (req, res) => {
             checkIn: record.checkIn,
             checkOut: record.checkOut,
             status: record.status,
-            workingHours: record.workingHours
+            workingHours: record.workingHours,
+            holidayInfo: record.holidayInfo
           }
         });
       }
     });
+    
+    const paidHolidaysCount = attendanceWithShifts.filter(a => 
+      a.actual?.holidayInfo?.isPaid || a.expectedShift?.isPaidHoliday
+    ).length;
     
     const summary = {
       totalScheduledDays: expectedShifts.length,
       presentDays: attendance.filter(a => a.status === 'present').length,
       lateDays: attendance.filter(a => a.status === 'late').length,
       onLeaveDays: attendance.filter(a => a.status === 'on-leave').length,
+      paidHolidays: paidHolidaysCount,
       totalWorkedHours: attendance.reduce((sum, a) => sum + (a.workingHours || 0), 0),
       attendanceRate: expectedShifts.length > 0 ? ((attendance.filter(a => a.checkIn).length / expectedShifts.length) * 100).toFixed(1) : '0'
     };
@@ -238,6 +282,7 @@ const getMyAttendance = async (req, res) => {
       summary
     });
   } catch (error) {
+    console.error('Get my attendance error:', error);
     res.status(500).json({ error: 'Failed to fetch attendance' });
   }
 };
@@ -293,6 +338,9 @@ const markAttendance = async (req, res) => {
       return res.status(400).json({ error: 'Cannot mark attendance for future dates' });
     }
     
+    // Check if date is a predefined holiday
+    const holidayCheck = await AttendanceUtils.checkHolidayForDate(targetDate, restaurantSlug, TenantModelFactory);
+    
     // Validate check-in/out times
     const timeValidation = AttendanceUtils.validateCheckInOut(checkIn, checkOut);
     if (!timeValidation.isValid) {
@@ -311,18 +359,43 @@ const markAttendance = async (req, res) => {
     let attendance = existingAttendance;
     
     if (attendance) {
-      attendance.status = status;
+      // If it's a paid holiday and staff is absent, mark as present with holiday status
+      if (holidayCheck.isHoliday && holidayCheck.isPaidHoliday && status === 'absent') {
+        attendance.status = 'on-leave'; // Special status for paid holidays
+        attendance.holidayInfo = {
+          isHoliday: true,
+          holidayName: holidayCheck.holiday.name,
+          isPaid: true
+        };
+      } else {
+        attendance.status = status;
+      }
+      
       if (checkIn) attendance.checkIn = new Date(checkIn);
       if (checkOut) attendance.checkOut = new Date(checkOut);
       attendance.modifiedBy = currentUserId;
     } else {
+      let finalStatus = status;
+      let holidayInfo = null;
+      
+      // If it's a paid holiday and marking as absent, treat as paid leave
+      if (holidayCheck.isHoliday && holidayCheck.isPaidHoliday && status === 'absent') {
+        finalStatus = 'on-leave';
+        holidayInfo = {
+          isHoliday: true,
+          holidayName: holidayCheck.holiday.name,
+          isPaid: true
+        };
+      }
+      
       attendance = new AttendanceModel({
         staffId: id,
         date: targetDate,
-        status,
+        status: finalStatus,
         checkIn: checkIn ? new Date(checkIn) : null,
         checkOut: checkOut ? new Date(checkOut) : null,
-        modifiedBy: currentUserId
+        modifiedBy: currentUserId,
+        holidayInfo
       });
     }
     
@@ -331,8 +404,20 @@ const markAttendance = async (req, res) => {
     }
     
     await attendance.save();
-    res.json({ message: 'Attendance marked successfully' });
+    
+    const response = { 
+      message: 'Attendance marked successfully',
+      holidayInfo: holidayCheck.isHoliday ? {
+        isHoliday: true,
+        holidayName: holidayCheck.holiday.name,
+        isPaidHoliday: holidayCheck.isPaidHoliday,
+        salaryDeduction: !holidayCheck.isPaidHoliday
+      } : null
+    };
+    
+    res.json(response);
   } catch (error) {
+    console.error('Mark attendance error:', error);
     res.status(500).json({ error: 'Failed to mark attendance' });
   }
 };
@@ -366,18 +451,34 @@ const getAllAttendance = async (req, res) => {
   }
 };
 
-const generateExpectedShifts = (staff, startDate, endDate) => {
+const generateExpectedShiftsWithHolidays = async (staff, startDate, endDate, restaurantSlug) => {
   const shifts = [];
   const current = new Date(startDate);
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   
+  const HolidayModel = TenantModelFactory.getHolidayModel(restaurantSlug);
+  
+  // Get all holidays in the date range
+  const holidays = await HolidayModel.find({
+    date: { $gte: startDate, $lte: endDate },
+    isActive: true
+  });
+  
+  const holidayMap = new Map();
+  holidays.forEach(holiday => {
+    const dateKey = new Date(holiday.date).toDateString();
+    holidayMap.set(dateKey, holiday);
+  });
+  
   while (current <= endDate) {
     const dayName = dayNames[current.getDay()];
+    const dateKey = current.toDateString();
+    const holiday = holidayMap.get(dateKey);
     
     if (staff.shiftSchedule?.type === 'fixed' && staff.shiftSchedule.fixedShift) {
       const { startTime, endTime, workingDays } = staff.shiftSchedule.fixedShift;
       
-      if (workingDays.includes(dayName)) {
+      if (workingDays.includes(dayName) || holiday) {
         const startHour = parseInt(startTime.split(':')[0]);
         const startMinute = parseInt(startTime.split(':')[1]);
         const endHour = parseInt(endTime.split(':')[0]);
@@ -387,9 +488,12 @@ const generateExpectedShifts = (staff, startDate, endDate) => {
         
         shifts.push({
           date: new Date(current),
-          startTime,
-          endTime,
-          expectedHours
+          startTime: holiday ? null : startTime,
+          endTime: holiday ? null : endTime,
+          expectedHours: holiday && holiday.isPaid ? expectedHours : (holiday ? 0 : expectedHours),
+          isHoliday: !!holiday,
+          holidayName: holiday?.name,
+          isPaidHoliday: holiday?.isPaid || false
         });
       }
     }
@@ -428,6 +532,100 @@ const getStaffAttendanceByDate = async (req, res) => {
   }
 };
 
+const checkEarlyLeaveEligibility = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const restaurantSlug = req.user.restaurantSlug;
+    const AttendanceModel = TenantModelFactory.getAttendanceModel(restaurantSlug);
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const today = AttendanceUtils.getCurrentDate();
+    
+    const attendance = await AttendanceModel.findOne({ staffId: id, date: today });
+    const staff = await StaffModel.findById(id);
+    
+    if (!attendance?.checkIn) {
+      return res.status(400).json({ error: 'Staff has not checked in today' });
+    }
+    
+    if (attendance.checkOut) {
+      return res.status(400).json({ error: 'Staff has already checked out' });
+    }
+    
+    const standardHours = staff?.workingHours?.standardHours || 8;
+    const earlyLeaveEligibility = AttendanceUtils.calculateEarlyLeaveEligibility(
+      attendance.lateMinutes, 
+      standardHours
+    );
+    
+    res.json({
+      staffName: staff.name,
+      checkInTime: attendance.checkIn,
+      lateMinutes: attendance.lateMinutes,
+      earlyLeaveEligibility,
+      currentEarlyLeave: attendance.earlyLeave
+    });
+  } catch (error) {
+    console.error('Check early leave eligibility error:', error);
+    res.status(500).json({ error: 'Failed to check early leave eligibility' });
+  }
+};
+
+const approveEarlyLeave = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const restaurantSlug = req.user.restaurantSlug;
+    const currentUserId = req.user.userId || req.user.id;
+    const AttendanceModel = TenantModelFactory.getAttendanceModel(restaurantSlug);
+    const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
+    const today = AttendanceUtils.getCurrentDate();
+    
+    if (!['RESTAURANT_ADMIN', 'MANAGER'].includes(req.user.role)) {
+      return res.status(403).json({ error: 'Only admins and managers can approve early leave' });
+    }
+    
+    const attendance = await AttendanceModel.findOne({ staffId: id, date: today });
+    const staff = await StaffModel.findById(id);
+    
+    if (!attendance?.checkIn) {
+      return res.status(400).json({ error: 'Staff has not checked in today' });
+    }
+    
+    if (attendance.checkOut) {
+      return res.status(400).json({ error: 'Staff has already checked out' });
+    }
+    
+    const standardHours = staff?.workingHours?.standardHours || 8;
+    const earlyLeaveEligibility = AttendanceUtils.calculateEarlyLeaveEligibility(
+      attendance.lateMinutes, 
+      standardHours
+    );
+    
+    if (!earlyLeaveEligibility.isEligible) {
+      return res.status(400).json({ error: 'Staff is not eligible for early leave' });
+    }
+    
+    attendance.earlyLeave = {
+      isAllowed: true,
+      reason: reason || earlyLeaveEligibility.reason,
+      approvedBy: currentUserId,
+      approvedAt: new Date()
+    };
+    
+    await attendance.save();
+    
+    res.json({
+      message: 'Early leave approved successfully',
+      staffName: staff.name,
+      earlyLeaveDetails: attendance.earlyLeave,
+      eligibility: earlyLeaveEligibility
+    });
+  } catch (error) {
+    console.error('Approve early leave error:', error);
+    res.status(500).json({ error: 'Failed to approve early leave' });
+  }
+};
+
 module.exports = {
   checkIn,
   checkOut,
@@ -435,5 +633,7 @@ module.exports = {
   getTodayAttendance,
   markAttendance,
   getAllAttendance,
-  getStaffAttendanceByDate
+  getStaffAttendanceByDate,
+  checkEarlyLeaveEligibility,
+  approveEarlyLeave
 };

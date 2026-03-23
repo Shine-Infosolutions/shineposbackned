@@ -78,11 +78,14 @@ const staffSchema = new mongoose.Schema({
     reason: String,
     status: {
       type: String,
-      enum: ['pending', 'accepted', 'declined'],
+      enum: ['pending', 'accepted', 'declined', 'in-progress', 'completed'],
       default: 'pending'
     },
     assignedBy: mongoose.Schema.Types.ObjectId,
     respondedAt: Date,
+    startedAt: Date,
+    completedAt: Date,
+    actualHours: Number,
     createdAt: { type: Date, default: Date.now }
   }],
   overtimeRecords: [{
@@ -96,6 +99,17 @@ const staffSchema = new mongoose.Schema({
     createdBy: mongoose.Schema.Types.ObjectId,
     createdAt: { type: Date, default: Date.now }
   }],
+  advanceSalary: {
+    amount: { type: Number, default: 0 },
+    reason: { type: String, default: '' },
+    isHeld: { type: Boolean, default: false },
+    heldAt: { type: Date },
+    heldBy: { type: mongoose.Schema.Types.ObjectId }
+  },
+  pfDeduction: {
+    percentage: { type: Number, default: 0, min: 0, max: 100 },
+    isEnabled: { type: Boolean, default: false }
+  },
 
 }, {
   timestamps: true

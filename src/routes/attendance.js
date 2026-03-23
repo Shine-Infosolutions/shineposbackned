@@ -8,7 +8,9 @@ const {
   getTodayAttendance,
   markAttendance,
   getAllAttendance,
-  getStaffAttendanceByDate
+  getStaffAttendanceByDate,
+  checkEarlyLeaveEligibility,
+  approveEarlyLeave
 } = require('../controllers/attendanceController');
 const {
   scheduleShift,
@@ -100,6 +102,22 @@ router.get('/staff/:staffId',
   checkSubscription, 
   tenantMiddleware, 
   getStaffAttendanceByDate
+);
+
+// Early leave management
+router.get('/early-leave-eligibility/:id',
+  auth(['RESTAURANT_ADMIN', 'MANAGER', 'CHEF', 'WAITER', 'CASHIER']),
+  checkSubscription,
+  tenantMiddleware,
+  checkEarlyLeaveEligibility
+);
+
+router.post('/approve-early-leave/:id',
+  auth(['RESTAURANT_ADMIN', 'MANAGER']),
+  checkSubscription,
+  tenantMiddleware,
+  activityLogger('Early Leave Approval'),
+  approveEarlyLeave
 );
 
 module.exports = router;

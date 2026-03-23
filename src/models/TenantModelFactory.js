@@ -4,6 +4,10 @@ const wastageSchema = require('./Wastage');
 const { vendorSchema, vendorPriceSchema } = require('./Vendor');
 const purchaseOrderSchema = require('./PurchaseOrder');
 const overtimeSchema = require('./Overtime');
+const advanceSalarySchema = require('./AdvanceSalary');
+const pfDeductionSchema = require('./PFDeduction');
+const bonusSchema = require('./Bonus');
+const holidaySchema = require('./Holiday');
 
 // User Schema for tenant-specific collections
 const createUserSchema = () => new mongoose.Schema({
@@ -438,7 +442,18 @@ const createStaffSchema = () => new mongoose.Schema({
     notes: String,
     createdBy: mongoose.Schema.Types.ObjectId,
     createdAt: { type: Date, default: Date.now }
-  }]
+  }],
+  advanceSalary: {
+    amount: { type: Number, default: 0 },
+    reason: { type: String, default: '' },
+    isHeld: { type: Boolean, default: false },
+    heldAt: { type: Date },
+    heldBy: { type: mongoose.Schema.Types.ObjectId }
+  },
+  pfDeduction: {
+    percentage: { type: Number, default: 0, min: 0, max: 100 },
+    isEnabled: { type: Boolean, default: false }
+  }
 }, {
   timestamps: true
 });
@@ -1039,6 +1054,42 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getAdvanceSalaryModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_advancesalaries`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('advancesalaries', advanceSalarySchema));
+    }
+    return this.models.get(modelKey);
+  }
+
+  getPFDeductionModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_pfdeductions`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('pfdeductions', pfDeductionSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
+  getBonusModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_bonuses`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('bonuses', bonusSchema));
+    }
+    return this.models.get(modelKey);
+  }
+
+  getHolidayModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_holidays`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      this.models.set(modelKey, connection.model('holidays', holidaySchema));
+    }
+    return this.models.get(modelKey);
+  }
+
   getModel(restaurantSlug, modelName, schema) {
     const methodMap = {
       'Order': 'getOrderModel',
@@ -1078,6 +1129,10 @@ class TenantModelFactory {
     this.getVendorModel(restaurantSlug);
     this.getVendorPriceModel(restaurantSlug);
     this.getOvertimeModel(restaurantSlug);
+    this.getAdvanceSalaryModel(restaurantSlug);
+    this.getPFDeductionModel(restaurantSlug);
+    this.getBonusModel(restaurantSlug);
+    this.getHolidayModel(restaurantSlug);
   }
 }
 

@@ -42,6 +42,7 @@ const crmRoutes = require('./routes/crm');
 const itemAnalysisRoutes = require('./routes/itemAnalysis');
 const discountRoutes = require('./routes/discount');
 const taxReportsRoutes = require('./routes/taxReports');
+const salaryRoutes = require('./routes/salary');
 const systemController = require('./controllers/systemController');
 const { trackApiMetrics } = systemController;
 
@@ -101,6 +102,7 @@ app.use('/api', crmRoutes);
 app.use('/api/reports/items', itemAnalysisRoutes);
 app.use('/api/discounts', discountRoutes);
 app.use('/api/reports/tax', taxReportsRoutes);
+app.use('/api/salary', salaryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/:restaurantSlug/orders', orderRoutes);
 
