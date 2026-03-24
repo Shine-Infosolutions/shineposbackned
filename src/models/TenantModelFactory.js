@@ -919,6 +919,22 @@ class TenantModelFactory {
     return result.seq;
   }
 
+  // Syncs the counter to the actual max number in the collection.
+  // Called automatically when a duplicate kotNumber is detected.
+  async syncSequenceToMax(restaurantSlug, counterName, Model, field, prefix) {
+    const Counter = this.getCounterModel(restaurantSlug);
+    const latest = await Model.findOne({}, { [field]: 1 }).sort({ [field]: -1 }).lean();
+    if (!latest) return;
+    const num = parseInt(latest[field].replace(prefix, ''), 10);
+    if (!isNaN(num)) {
+      await Counter.findOneAndUpdate(
+        { _id: counterName, seq: { $lt: num } },
+        { $set: { seq: num } },
+        { upsert: true }
+      );
+    }
+  }
+
   getInventoryLogModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_inventorylogs`;
     if (!this.models.has(modelKey)) {

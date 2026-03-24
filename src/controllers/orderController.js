@@ -316,29 +316,41 @@ const createOrder = async (req, res) => {
     // Auto-create KOT when order is created
     try {
       const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
-      
-      const kotSeq = await TenantModelFactory.getNextSequence(restaurantSlug, 'kot');
-      const kot = new KOTModel({
-        kotNumber: `KOT${String(kotSeq).padStart(6, '0')}`,
-        orderId: savedOrder._id,
-        orderNumber: savedOrder.orderNumber,
-        items: orderItems.map(item => ({
-          menuId: item.menuId,
-          name: item.name,
-          quantity: item.quantity,
-          variation: item.variation,
-          addons: item.addons,
-          status: "PENDING",
-          timeToPrepare: item.timeToPrepare || savedOrder.items.find(i => i.menuId.toString() === item.menuId.toString())?.timeToPrepare || 15,
-          startedAt: null,
-          readyAt: null,
-          actualPrepTime: null
-        })),
-        customerName: savedOrder.customerName,
-        tableNumber: savedOrder.tableNumber
-      });
-      
-      await kot.save();
+
+      const kotItems = orderItems.map(item => ({
+        menuId: item.menuId,
+        name: item.name,
+        quantity: item.quantity,
+        variation: item.variation,
+        addons: item.addons,
+        status: "PENDING",
+        timeToPrepare: item.timeToPrepare || savedOrder.items.find(i => i.menuId.toString() === item.menuId.toString())?.timeToPrepare || 15,
+        startedAt: null,
+        readyAt: null,
+        actualPrepTime: null
+      }));
+
+      // Retry up to 3 times on duplicate kotNumber (counter out-of-sync guard)
+      let kotSaved = false;
+      for (let attempt = 0; attempt < 3 && !kotSaved; attempt++) {
+        const kotSeq = await TenantModelFactory.getNextSequence(restaurantSlug, 'kot');
+        const kot = new KOTModel({
+          kotNumber: `KOT${String(kotSeq).padStart(6, '0')}`,
+          orderId: savedOrder._id,
+          orderNumber: savedOrder.orderNumber,
+          items: kotItems,
+          customerName: savedOrder.customerName,
+          tableNumber: savedOrder.tableNumber
+        });
+        try {
+          await kot.save();
+          kotSaved = true;
+        } catch (dupErr) {
+          if (dupErr.code !== 11000 || attempt === 2) throw dupErr;
+          // Sync counter to actual max before retrying
+          await TenantModelFactory.syncSequenceToMax(restaurantSlug, 'kot', KOTModel, 'kotNumber', 'KOT');
+        }
+      }
     } catch (kotError) {
       console.error('KOT creation error:', kotError);
     }
