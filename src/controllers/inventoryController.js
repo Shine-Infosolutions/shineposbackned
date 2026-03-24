@@ -67,6 +67,73 @@ const deductInventoryForItems = async (restaurantSlug, items) => {
   }
 };
 
+// Shared helper: restock inventory when order is cancelled
+const restockInventoryForItems = async (restaurantSlug, items, orderNumber) => {
+  const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+  const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
+  const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
+  const { ObjectId } = require('mongoose').Types;
+
+  // Batch fetch all recipes in one query
+  const menuIds = items.map(i => new ObjectId(i.menuId)).filter(Boolean);
+  if (menuIds.length === 0) return;
+
+  const recipes = await RecipeModel.collection.find({ menuItemId: { $in: menuIds } }).toArray();
+  const recipeMap = {};
+  recipes.forEach(r => { recipeMap[r.menuItemId.toString()] = r; });
+
+  const restocks = [];
+  for (const orderItem of items) {
+    const recipe = recipeMap[orderItem.menuId?.toString()];
+    if (recipe?.ingredients?.length > 0) {
+      for (const ingredient of recipe.ingredients) {
+        restocks.push({
+          inventoryItemId: new ObjectId(ingredient.inventoryItemId),
+          quantity: ingredient.quantity * orderItem.quantity,
+          orderItemName: orderItem.name || 'item',
+          orderItemQty: orderItem.quantity
+        });
+      }
+    }
+  }
+
+  if (restocks.length === 0) return;
+
+  const connection = TenantModelFactory.getTenantConnection(restaurantSlug);
+  const session = await connection.startSession();
+  try {
+    await session.withTransaction(async () => {
+      // Batch fetch all inventory items needed
+      const invIds = [...new Set(restocks.map(r => r.inventoryItemId.toString()))]
+        .map(id => new ObjectId(id));
+      const invItems = await InventoryModel.collection.find({ _id: { $in: invIds } }, { session }).toArray();
+      const invMap = {};
+      invItems.forEach(i => { invMap[i._id.toString()] = i; });
+
+      for (const r of restocks) {
+        const invItem = invMap[r.inventoryItemId.toString()];
+        await InventoryModel.collection.updateOne(
+          { _id: r.inventoryItemId },
+          { $inc: { currentStock: r.quantity } },
+          { session }
+        );
+        await LogModel.collection.insertOne({
+          inventoryItemId: r.inventoryItemId,
+          itemName: invItem?.name || '',
+          type: 'order_cancellation',
+          quantity: r.quantity,
+          note: `Restocked due to order cancellation (${orderNumber}) - ${r.orderItemName} x${r.orderItemQty}`,
+          createdAt: new Date(), updatedAt: new Date()
+        }, { session });
+      }
+    });
+  } catch (err) {
+    console.error('Inventory restock error:', err);
+  } finally {
+    await session.endSession();
+  }
+};
+
 // Recipe Management
 const createRecipe = async (req, res) => {
   try {
@@ -419,6 +486,7 @@ const deleteInventoryItem = async (req, res) => {
 module.exports = {
   getStockLogs,
   deductInventoryForItems,
+  restockInventoryForItems,
   createInventoryItem,
   getInventory,
   updateInventoryItem,

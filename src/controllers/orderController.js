@@ -8,7 +8,7 @@ const Customer = require('../models/Customer');
 const LoyaltySettings = require('../models/LoyaltySettings');
 const kotPrinter = require("../utils/kotPrinter");
 const { prepareKOTData } = require("../utils/kotDataHelper");
-const { deductInventoryForItems } = require('./inventoryController');
+const { deductInventoryForItems, restockInventoryForItems } = require('./inventoryController');
 
 // Cache restaurant + moduleConfig lookups for 60s
 const restaurantCache = new Map();
@@ -432,6 +432,7 @@ const updateOrderStatus = async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
+    const previousStatus = order.status;
     order.status = status;
     
     // Map order status to item status
@@ -484,6 +485,14 @@ const updateOrderStatus = async (req, res) => {
     }
     
     const savedOrder = await order.save();
+
+    // Restock inventory if order is cancelled
+    if (status === 'CANCELLED' && previousStatus !== 'CANCELLED') {
+      const allItems = [...order.items, ...(order.extraItems || [])];
+      restockInventoryForItems(req.user.restaurantSlug, allItems, order.orderNumber).catch(err =>
+        console.error('Inventory restock failed:', err)
+      );
+    }
 
     // Restore tables atomically — updateMany for original tables, delete merged
     if ((status === "CANCELLED" || status === "PAID") && order.tableId) {

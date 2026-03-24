@@ -926,7 +926,7 @@ class TenantModelFactory {
       const schema = new mongoose.Schema({
         inventoryItemId: mongoose.Schema.Types.ObjectId,
         itemName: String,
-        type: { type: String, enum: ['restock', 'order_deduction', 'wastage'], required: true },
+        type: { type: String, enum: ['restock', 'order_deduction', 'order_cancellation', 'wastage'], required: true },
         quantity: Number,
         note: String,
         orderId: mongoose.Schema.Types.ObjectId
