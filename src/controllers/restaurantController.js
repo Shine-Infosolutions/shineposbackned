@@ -71,7 +71,7 @@ const createRestaurant = async (req, res) => {
 
 const getRestaurants = async (req, res) => {
   try {
-    const restaurants = await Restaurant.find().sort({ createdAt: -1 });
+    const restaurants = await Restaurant.find().select('restaurantName ownerName slug email isActive subscriptionPlan subscriptionEndDate createdAt').sort({ createdAt: -1 }).lean();
     res.json({ restaurants });
   } catch (error) {
     console.error('Get restaurants error:', error);
@@ -87,7 +87,7 @@ const getRestaurantAnalytics = async (req, res) => {
         try {
           const [OrderModel, MenuModel] = [
             TenantModelFactory.getOrderModel(restaurant.slug),
-            TenantModelFactory.getMenuModel(restaurant.slug)
+            TenantModelFactory.getMenuItemModel(restaurant.slug)
           ];
           
           const [totalOrders, totalRevenue, menuCount] = await Promise.all([

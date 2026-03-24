@@ -44,22 +44,11 @@ const createStaff = async (req, res) => {
     const staff = new StaffModel(staffData);
     await staff.save();
     
-    if (staffData.shiftSchedule) {
-      await StaffModel.collection.updateOne(
-        { _id: staff._id },
-        { $set: { shiftSchedule: staffData.shiftSchedule } }
-      );
-    }
-    
-    const finalStaff = await StaffModel.findById(staff._id);
-    
     const { password: _, ...responseData } = staff.toObject();
     res.status(201).json({ message: 'Staff member created successfully', staff: responseData });
   } catch (error) {
     console.error('Create staff error:', error);
-    console.error('Error stack:', error.stack);
-    console.error('Error message:', error.message);
-    res.status(500).json({ error: 'Failed to create staff member', details: error.message });
+    res.status(500).json({ error: 'Failed to create staff member' });
   }
 };
 
@@ -99,16 +88,7 @@ const updateStaff = async (req, res) => {
     Object.assign(staff, updateData);
     await staff.save();
     
-    if (updateData.shiftSchedule) {
-      await StaffModel.collection.updateOne(
-        { _id: staff._id },
-        { $set: { shiftSchedule: updateData.shiftSchedule } }
-      );
-    }
-    
-    const finalStaff = await StaffModel.findById(staff._id);
-    
-    const { password: _, ...staffData } = finalStaff.toObject();
+    const { password: _, ...staffData } = staff.toObject();
     res.json({ message: 'Staff member updated successfully', staff: staffData });
   } catch (error) {
     console.error('Update staff error:', error);
@@ -250,7 +230,7 @@ const getMyOvertimeRequests = async (req, res) => {
     
     let overtimeRequests;
     if (userRole === 'RESTAURANT_ADMIN') {
-      overtimeRequests = await OvertimeModel.find().sort({ createdAt: -1 });
+      overtimeRequests = await OvertimeModel.find().sort({ createdAt: -1 }).limit(100).lean();
       return res.json({ 
         overtimeRequests,
         overtimeRate: 0,
@@ -317,8 +297,6 @@ const setOvertimeRate = async (req, res) => {
     const restaurantSlug = req.user.restaurantSlug;
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
-    console.log('Setting overtime rate:', { id, overtimeRate: Number(overtimeRate), restaurantSlug });
-    
     const staff = await StaffModel.findById(id);
     if (!staff) {
       return res.status(404).json({ error: 'Staff member not found' });
@@ -326,8 +304,6 @@ const setOvertimeRate = async (req, res) => {
     
     staff.overtimeRate = Number(overtimeRate) || 0;
     await staff.save();
-    
-    console.log('Updated staff overtime rate:', staff.overtimeRate);
     
     const { password: _, ...staffData } = staff.toObject();
     res.json({ message: 'Overtime rate updated successfully', staff: staffData });
@@ -376,8 +352,7 @@ const addOvertimeRecord = async (req, res) => {
     });
   } catch (error) {
     console.error('Add overtime record error:', error);
-    console.error('Error details:', error.message);
-    res.status(500).json({ error: 'Failed to add overtime record', details: error.message });
+    res.status(500).json({ error: 'Failed to add overtime record' });
   }
 };
 

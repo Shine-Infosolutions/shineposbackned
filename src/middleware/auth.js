@@ -1,5 +1,4 @@
 const { verifyToken } = require('../utils/jwt');
-const TenantModelFactory = require('../models/TenantModelFactory');
 const auth = (requiredRoles = []) => {
   return async (req, res, next) => {
     try {
@@ -15,16 +14,6 @@ const auth = (requiredRoles = []) => {
       // Check role authorization
       if (requiredRoles.length > 0 && !requiredRoles.includes(decoded.role)) {
         return res.status(403).json({ error: 'Access denied. Insufficient permissions.' });
-      }
-
-      // For tenant-specific operations, attach models
-      if (decoded.restaurantSlug) {
-        req.tenantModels = {
-          User: TenantModelFactory.getUserModel(decoded.restaurantSlug),
-          Menu: TenantModelFactory.getMenuModel(decoded.restaurantSlug),
-          MenuItem: TenantModelFactory.getMenuItemModel(decoded.restaurantSlug),
-          Order: TenantModelFactory.getOrderModel(decoded.restaurantSlug)
-        };
       }
 
       next();

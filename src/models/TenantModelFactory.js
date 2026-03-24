@@ -1,9 +1,5 @@
 const mongoose = require('mongoose');
-const overtimeSchema = require('./Overtime');
-const advanceSalarySchema = require('./AdvanceSalary');
-const pfDeductionSchema = require('./PFDeduction');
-const bonusSchema = require('./Bonus');
-const holidaySchema = require('./Holiday');
+const { createIndexesForTenant } = require('../scripts/createIndexes');
 
 // User Schema for tenant-specific collections
 const createUserSchema = () => new mongoose.Schema({
@@ -623,15 +619,6 @@ const createTableBookingSchema = () => {
     timestamps: true
   });
   
-  // Generate booking number before saving
-  schema.pre('save', async function(next) {
-    if (!this.bookingNumber) {
-      const count = await this.constructor.countDocuments();
-      this.bookingNumber = `BK${String(count + 1).padStart(6, '0')}`;
-    }
-    next();
-  });
-  
   return schema;
 };
 
@@ -745,15 +732,6 @@ const createKOTSchema = () => {
     timestamps: true
   });
   
-  // Generate KOT number before saving
-  schema.pre('save', async function(next) {
-    if (!this.kotNumber) {
-      const count = await this.constructor.countDocuments();
-      this.kotNumber = `KOT${String(count + 1).padStart(6, '0')}`;
-    }
-    next();
-  });
-  
   return schema;
 };
 
@@ -766,7 +744,11 @@ class TenantModelFactory {
   getTenantConnection(restaurantSlug) {
     if (!this.connections.has(restaurantSlug)) {
       const dbName = `restaurant_${restaurantSlug}`;
-      const connection = mongoose.createConnection(process.env.MONGODB_URI.replace('/restaurant-saas', `/${dbName}`));
+      const connection = mongoose.createConnection(
+        process.env.MONGODB_URI.replace('/restaurant-saas', `/${dbName}`),
+        { maxPoolSize: 5, minPoolSize: 1, serverSelectionTimeoutMS: 10000, connectTimeoutMS: 10000 }
+      );
+      connection.on('error', (err) => console.error(`Tenant DB error [${restaurantSlug}]:`, err));
       this.connections.set(restaurantSlug, connection);
     }
     return this.connections.get(restaurantSlug);
@@ -914,6 +896,29 @@ class TenantModelFactory {
     return this.models.get(modelKey);
   }
 
+  getCounterModel(restaurantSlug) {
+    const modelKey = `${restaurantSlug}_counters`;
+    if (!this.models.has(modelKey)) {
+      const connection = this.getTenantConnection(restaurantSlug);
+      const schema = new mongoose.Schema({
+        _id: String,
+        seq: { type: Number, default: 0 }
+      });
+      this.models.set(modelKey, connection.model('counters', schema));
+    }
+    return this.models.get(modelKey);
+  }
+
+  async getNextSequence(restaurantSlug, name) {
+    const Counter = this.getCounterModel(restaurantSlug);
+    const result = await Counter.findOneAndUpdate(
+      { _id: name },
+      { $inc: { seq: 1 } },
+      { upsert: true, new: true }
+    );
+    return result.seq;
+  }
+
   getInventoryLogModel(restaurantSlug) {
     const modelKey = `${restaurantSlug}_inventorylogs`;
     if (!this.models.has(modelKey)) {
@@ -1019,13 +1024,7 @@ class TenantModelFactory {
         notes: String,
         createdBy: { type: mongoose.Schema.Types.ObjectId }
       }, { timestamps: true });
-      schema.pre('save', async function(next) {
-        if (!this.orderNumber) {
-          const count = await this.constructor.countDocuments();
-          this.orderNumber = `PO${String(count + 1).padStart(6, '0')}`;
-        }
-        next();
-      });
+
       this.models.set(modelKey, connection.model('purchaseorders', schema));
     }
     return this.models.get(modelKey);
@@ -1099,7 +1098,20 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_overtimes`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('overtimes', overtimeSchema));
+      const schema = new mongoose.Schema({
+        staffId: { type: mongoose.Schema.Types.ObjectId, ref: 'Staff', required: true },
+        staffName: String, date: { type: Date, required: true },
+        startTime: String, endTime: String,
+        hours: { type: String, required: true },
+        rate: { type: Number, default: 0 }, amount: { type: Number, default: 0 },
+        reason: String,
+        status: { type: String, enum: ['accepted', 'completed', 'in-progress'], default: 'accepted' },
+        respondedAt: Date, assignedBy: mongoose.Schema.Types.ObjectId, notes: String,
+        actualHoursWorked: { type: String, default: '0:00' },
+        actualRate: { type: Number, default: 0 },
+        startedAt: Date, completedAt: Date
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('overtimes', schema));
     }
     return this.models.get(modelKey);
   }
@@ -1108,7 +1120,17 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_advancesalaries`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('advancesalaries', advanceSalarySchema));
+      const schema = new mongoose.Schema({
+        staffId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        staffName: { type: String, required: true },
+        amount: { type: Number, required: true, min: 1 },
+        reason: { type: String, default: '' },
+        status: { type: String, enum: ['held', 'released', 'deducted'], default: 'held' },
+        heldAt: { type: Date, default: Date.now }, heldBy: mongoose.Schema.Types.ObjectId,
+        releasedAt: Date, releasedBy: mongoose.Schema.Types.ObjectId,
+        deductedAt: Date, notes: { type: String, default: '' }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('advancesalaries', schema));
     }
     return this.models.get(modelKey);
   }
@@ -1117,7 +1139,19 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_pfdeductions`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('pfdeductions', pfDeductionSchema));
+      const schema = new mongoose.Schema({
+        staffId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        staffName: { type: String, required: true },
+        salaryAmount: { type: Number, default: 0 },
+        month: { type: String, required: true },
+        employeePercentage: { type: Number, default: 2.5 }, employeeDeduction: { type: Number, default: 0 },
+        employerPercentage: { type: Number, default: 2.5 }, employerDeduction: { type: Number, default: 0 },
+        employerDeducted: { type: Boolean, default: false }, employerDeductedAt: Date,
+        totalDeduction: { type: Number, default: 0 }, isEnabled: { type: Boolean, default: true },
+        status: { type: String, enum: ['active', 'deducted', 'cancelled'], default: 'active' },
+        setBy: mongoose.Schema.Types.ObjectId, notes: { type: String, default: '' }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('pfdeductions', schema));
     }
     return this.models.get(modelKey);
   }
@@ -1126,7 +1160,21 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_bonuses`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('bonuses', bonusSchema));
+      const schema = new mongoose.Schema({
+        staffId: { type: mongoose.Schema.Types.ObjectId, required: true },
+        staffName: { type: String, required: true },
+        bonusType: { type: String, enum: ['performance','festival','annual','achievement','overtime','custom'], required: true },
+        amount: { type: Number, required: true, min: 1 },
+        percentage: { type: Number, min: 0, max: 100 },
+        basedOnSalary: { type: Boolean, default: false },
+        reason: { type: String, required: true }, description: { type: String, default: '' },
+        status: { type: String, enum: ['pending','approved','paid','cancelled'], default: 'pending' },
+        effectiveDate: { type: Date, default: Date.now },
+        approvedBy: mongoose.Schema.Types.ObjectId, approvedAt: Date, paidAt: Date,
+        month: String, year: Number, notes: { type: String, default: '' },
+        createdBy: { type: mongoose.Schema.Types.ObjectId, required: true }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('bonuses', schema));
     }
     return this.models.get(modelKey);
   }
@@ -1135,7 +1183,20 @@ class TenantModelFactory {
     const modelKey = `${restaurantSlug}_holidays`;
     if (!this.models.has(modelKey)) {
       const connection = this.getTenantConnection(restaurantSlug);
-      this.models.set(modelKey, connection.model('holidays', holidaySchema));
+      const schema = new mongoose.Schema({
+        name: { type: String, required: true, trim: true },
+        date: { type: Date, required: true },
+        type: { type: String, enum: ['national','religious','company','regional','optional'], required: true },
+        description: { type: String, trim: true },
+        isRecurring: { type: Boolean, default: false },
+        recurringType: { type: String, enum: ['yearly','monthly'], default: null },
+        isPaid: { type: Boolean, default: true },
+        isActive: { type: Boolean, default: true },
+        applicableRoles: [{ type: String, enum: ['MANAGER','CHEF','WAITER','CASHIER','ALL'] }],
+        createdBy: { type: mongoose.Schema.Types.ObjectId, required: true },
+        year: { type: Number, required: true }
+      }, { timestamps: true });
+      this.models.set(modelKey, connection.model('holidays', schema));
     }
     return this.models.get(modelKey);
   }
@@ -1160,7 +1221,6 @@ class TenantModelFactory {
   }
 
   async createTenantDatabase(restaurantSlug) {
-    // Initialize models to create database and collections
     this.getUserModel(restaurantSlug);
     this.getMenuModel(restaurantSlug);
     this.getOrderModel(restaurantSlug);
@@ -1183,6 +1243,7 @@ class TenantModelFactory {
     this.getPFDeductionModel(restaurantSlug);
     this.getBonusModel(restaurantSlug);
     this.getHolidayModel(restaurantSlug);
+    createIndexesForTenant(restaurantSlug).catch(err => console.error('Index creation failed:', err));
   }
 }
 

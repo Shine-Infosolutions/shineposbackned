@@ -2,35 +2,68 @@ const TenantModelFactory = require('../models/TenantModelFactory');
 
 // Shared helper: deduct inventory for a list of order items
 const deductInventoryForItems = async (restaurantSlug, items) => {
-  try {
-    const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
-    const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
-    const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
-    const { ObjectId } = require('mongoose').Types;
-    for (const orderItem of items) {
-      const recipe = await RecipeModel.collection.findOne({ menuItemId: new ObjectId(orderItem.menuId) });
-      if (recipe && recipe.ingredients && recipe.ingredients.length > 0) {
-        for (const ingredient of recipe.ingredients) {
-          const deducted = ingredient.quantity * orderItem.quantity;
-          const invItem = await InventoryModel.collection.findOne({ _id: new ObjectId(ingredient.inventoryItemId) });
-          await InventoryModel.collection.updateOne(
-            { _id: new ObjectId(ingredient.inventoryItemId) },
-            { $inc: { currentStock: -deducted } }
-          );
-          await LogModel.collection.insertOne({
-            inventoryItemId: new ObjectId(ingredient.inventoryItemId),
-            itemName: invItem?.name || '',
-            type: 'order_deduction',
-            quantity: -deducted,
-            note: `Order deduction for ${orderItem.name || 'item'} x${orderItem.quantity}`,
-            createdAt: new Date(),
-            updatedAt: new Date()
-          });
-        }
+  const RecipeModel = TenantModelFactory.getRecipeModel(restaurantSlug);
+  const InventoryModel = TenantModelFactory.getInventoryModel(restaurantSlug);
+  const LogModel = TenantModelFactory.getInventoryLogModel(restaurantSlug);
+  const { ObjectId } = require('mongoose').Types;
+
+  // Batch fetch all recipes in one query
+  const menuIds = items.map(i => new ObjectId(i.menuId)).filter(Boolean);
+  if (menuIds.length === 0) return;
+
+  const recipes = await RecipeModel.collection.find({ menuItemId: { $in: menuIds } }).toArray();
+  const recipeMap = {};
+  recipes.forEach(r => { recipeMap[r.menuItemId.toString()] = r; });
+
+  const deductions = [];
+  for (const orderItem of items) {
+    const recipe = recipeMap[orderItem.menuId?.toString()];
+    if (recipe?.ingredients?.length > 0) {
+      for (const ingredient of recipe.ingredients) {
+        deductions.push({
+          inventoryItemId: new ObjectId(ingredient.inventoryItemId),
+          quantity: ingredient.quantity * orderItem.quantity,
+          orderItemName: orderItem.name || 'item',
+          orderItemQty: orderItem.quantity
+        });
       }
     }
+  }
+
+  if (deductions.length === 0) return;
+
+  const connection = TenantModelFactory.getTenantConnection(restaurantSlug);
+  const session = await connection.startSession();
+  try {
+    await session.withTransaction(async () => {
+      // Batch fetch all inventory items needed
+      const invIds = [...new Set(deductions.map(d => d.inventoryItemId.toString()))]
+        .map(id => new ObjectId(id));
+      const invItems = await InventoryModel.collection.find({ _id: { $in: invIds } }, { session }).toArray();
+      const invMap = {};
+      invItems.forEach(i => { invMap[i._id.toString()] = i; });
+
+      for (const d of deductions) {
+        const invItem = invMap[d.inventoryItemId.toString()];
+        await InventoryModel.collection.updateOne(
+          { _id: d.inventoryItemId },
+          { $inc: { currentStock: -d.quantity } },
+          { session }
+        );
+        await LogModel.collection.insertOne({
+          inventoryItemId: d.inventoryItemId,
+          itemName: invItem?.name || '',
+          type: 'order_deduction',
+          quantity: -d.quantity,
+          note: `Order deduction for ${d.orderItemName} x${d.orderItemQty}`,
+          createdAt: new Date(), updatedAt: new Date()
+        }, { session });
+      }
+    });
   } catch (err) {
     console.error('Inventory deduction error:', err);
+  } finally {
+    await session.endSession();
   }
 };
 

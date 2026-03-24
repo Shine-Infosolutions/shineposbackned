@@ -39,7 +39,6 @@ const logActivity = async (userId, action, resource, options = {}) => {
 const activityLogger = (resource) => {
   return (req, res, next) => {
     const originalJson = res.json;
-    const originalSend = res.send;
     
     const logResponse = function(data) {
       const statusCode = res.statusCode;
@@ -68,11 +67,6 @@ const activityLogger = (resource) => {
     res.json = function(data) {
       logResponse(data);
       return originalJson.call(this, data);
-    };
-    
-    res.send = function(data) {
-      logResponse(data);
-      return originalSend.call(this, data);
     };
     
     next();

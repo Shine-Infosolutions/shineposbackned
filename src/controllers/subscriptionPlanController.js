@@ -33,7 +33,8 @@ const subscribeToPlan = async (req, res) => {
   try {
     const { restaurantId, paymentMethod, transactionId } = req.body;
 
-    const restaurant = await Restaurant.findById(restaurantId);
+    const restaurant = await Restaurant.findById(restaurantId)
+      .select('subscriptionPlan subscriptionStartDate subscriptionEndDate paymentStatus paymentHistory pausedTimeRemaining');
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
@@ -76,7 +77,8 @@ const getSubscriptionStatus = async (req, res) => {
   try {
     const { restaurantId } = req.params;
 
-    const restaurant = await Restaurant.findById(restaurantId);
+    const restaurant = await Restaurant.findById(restaurantId)
+      .select('subscriptionPlan subscriptionStartDate subscriptionEndDate paymentStatus').lean();
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
@@ -108,7 +110,8 @@ const cancelSubscription = async (req, res) => {
   try {
     const { restaurantId } = req.params;
 
-    const restaurant = await Restaurant.findById(restaurantId);
+    const restaurant = await Restaurant.findById(restaurantId)
+      .select('restaurantName subscriptionEndDate paymentStatus pausedTimeRemaining');
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
@@ -140,7 +143,8 @@ const renewSubscription = async (req, res) => {
   try {
     const { restaurantId, paymentMethod, transactionId } = req.body;
 
-    const restaurant = await Restaurant.findById(restaurantId);
+    const restaurant = await Restaurant.findById(restaurantId)
+      .select('subscriptionPlan subscriptionStartDate subscriptionEndDate paymentStatus paymentHistory pausedTimeRemaining');
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }

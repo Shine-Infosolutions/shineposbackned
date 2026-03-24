@@ -3,11 +3,13 @@ const { body } = require('express-validator');
 const { createRestaurant, getRestaurants, getRestaurantAnalytics, updateRestaurant, deleteRestaurant, toggleRestaurantStatus, getRestaurantSettings, updateRestaurantSettings } = require('../controllers/restaurantController');
 const { startTrialSubscription, activateSubscriptionAfterPayment } = require('../controllers/subscriptionController');
 const auth = require('../middleware/auth');
+const { registerLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
 // Create restaurant
-router.post('/add/restaurant', 
+router.post('/add/restaurant',
+  registerLimiter,
   [
     body('name').trim().isLength({ min: 2 }).withMessage('Restaurant name is required'),
     body('adminName').trim().isLength({ min: 2 }).withMessage('Owner name is required'),

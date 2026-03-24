@@ -2,213 +2,132 @@ const Discount = require('../models/Discount');
 const DiscountUsage = require('../models/DiscountUsage');
 const Restaurant = require('../models/Restaurant');
 
+// Shared helper — avoids repeated Restaurant.findOne per handler
+const getRestaurantId = async (slug) => {
+  const r = await Restaurant.findOne({ slug }).select('_id').lean();
+  return r?._id || null;
+};
+
 // Create discount
 exports.createDiscount = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
-    const discount = new Discount({ ...req.body, restaurantId: restaurant._id, createdBy: req.user._id });
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
+    const discount = new Discount({ ...req.body, restaurantId, createdBy: req.user._id });
     await discount.save();
     res.status(201).json(discount);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+  } catch (error) { res.status(400).json({ error: error.message }); }
 };
 
 // Get all discounts
 exports.getDiscounts = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
     const { type, isActive } = req.query;
-    const filter = { restaurantId: restaurant._id };
+    const filter = { restaurantId };
     if (type) filter.type = type;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
-    
     const discounts = await Discount.find(filter).sort({ createdAt: -1 });
     res.json(discounts);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Get discount by ID
 exports.getDiscountById = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
-    const discount = await Discount.findOne({ _id: req.params.id, restaurantId: restaurant._id });
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
+    const discount = await Discount.findOne({ _id: req.params.id, restaurantId });
     if (!discount) return res.status(404).json({ error: 'Discount not found' });
     res.json(discount);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Update discount
 exports.updateDiscount = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
     const discount = await Discount.findOneAndUpdate(
-      { _id: req.params.id, restaurantId: restaurant._id },
+      { _id: req.params.id, restaurantId },
       { ...req.body, updatedBy: req.user._id },
       { new: true, runValidators: true }
     );
     if (!discount) return res.status(404).json({ error: 'Discount not found' });
     res.json(discount);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+  } catch (error) { res.status(400).json({ error: error.message }); }
 };
 
 // Delete discount
 exports.deleteDiscount = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
-    const discount = await Discount.findOneAndDelete({ _id: req.params.id, restaurantId: restaurant._id });
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
+    const discount = await Discount.findOneAndDelete({ _id: req.params.id, restaurantId });
     if (!discount) return res.status(404).json({ error: 'Discount not found' });
     res.json({ message: 'Discount deleted successfully' });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Validate and apply discount
 exports.validateDiscount = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
     const { code, customerId, items, orderTotal, employeeId } = req.body;
-    
-    const discount = await Discount.findOne({ 
-      restaurantId: restaurant._id, 
-      code: code?.toUpperCase(),
-      isActive: true 
-    });
-    
+    const discount = await Discount.findOne({ restaurantId, code: code?.toUpperCase(), isActive: true });
     if (!discount) return res.status(404).json({ error: 'Invalid discount code' });
-    
     const now = new Date();
-    if (now < discount.validFrom || now > discount.validUntil) {
-      return res.status(400).json({ error: 'Discount has expired or not yet valid' });
-    }
-    
-    // Check usage limits
-    if (discount.usageLimit && discount.usageCount >= discount.usageLimit) {
-      return res.status(400).json({ error: 'Discount usage limit reached' });
-    }
-    
+    if (now < discount.validFrom || now > discount.validUntil) return res.status(400).json({ error: 'Discount has expired or not yet valid' });
+    if (discount.usageLimit && discount.usageCount >= discount.usageLimit) return res.status(400).json({ error: 'Discount usage limit reached' });
     if (discount.perUserLimit && customerId) {
       const userUsage = await DiscountUsage.countDocuments({ discountId: discount._id, customerId });
-      if (userUsage >= discount.perUserLimit) {
-        return res.status(400).json({ error: 'You have reached the usage limit for this discount' });
-      }
+      if (userUsage >= discount.perUserLimit) return res.status(400).json({ error: 'You have reached the usage limit for this discount' });
     }
-    
-    // Check minimum order amount
-    if (orderTotal < discount.minOrderAmount) {
-      return res.status(400).json({ error: `Minimum order amount is ${discount.minOrderAmount}` });
-    }
-    
-    // Type-specific validations
-    if (discount.type === 'happy_hour') {
-      const isHappyHour = checkHappyHour(discount.timeSlots);
-      if (!isHappyHour) return res.status(400).json({ error: 'Not within happy hour time' });
-    }
-    
+    if (orderTotal < discount.minOrderAmount) return res.status(400).json({ error: `Minimum order amount is ${discount.minOrderAmount}` });
+    if (discount.type === 'happy_hour' && !checkHappyHour(discount.timeSlots)) return res.status(400).json({ error: 'Not within happy hour time' });
     if (discount.type === 'employee') {
       if (!employeeId) return res.status(400).json({ error: 'Employee ID required' });
-      if (!discount.allEmployees && !discount.employeeIds.includes(employeeId)) {
-        return res.status(400).json({ error: 'Not eligible for employee discount' });
-      }
+      if (!discount.allEmployees && !discount.employeeIds.includes(employeeId)) return res.status(400).json({ error: 'Not eligible for employee discount' });
     }
-    
-    // Calculate discount
     const discountAmount = calculateDiscount(discount, items, orderTotal);
-    
-    res.json({ 
-      valid: true, 
-      discount: { 
-        id: discount._id, 
-        name: discount.name, 
-        type: discount.type,
-        discountAmount 
-      } 
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+    res.json({ valid: true, discount: { id: discount._id, name: discount.name, type: discount.type, discountAmount } });
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Get active discounts for customer
 exports.getActiveDiscounts = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
     const now = new Date();
     const discounts = await Discount.find({
-      restaurantId: restaurant._id,
-      isActive: true,
-      validFrom: { $lte: now },
-      validUntil: { $gte: now },
+      restaurantId, isActive: true,
+      validFrom: { $lte: now }, validUntil: { $gte: now },
       type: { $in: ['coupon', 'birthday', 'anniversary'] }
     }).select('name code type discountType value minOrderAmount validUntil');
-    
     res.json(discounts);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Get discount usage statistics
 exports.getDiscountStats = async (req, res) => {
   try {
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
-    
+    const restaurantId = await getRestaurantId(req.user.restaurantSlug);
+    if (!restaurantId) return res.status(404).json({ error: 'Restaurant not found' });
     const { startDate, endDate } = req.query;
-    const filter = { restaurantId: restaurant._id };
-    
-    if (startDate && endDate) {
-      filter.usedAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
-    }
-    
+    const filter = { restaurantId };
+    if (startDate && endDate) filter.usedAt = { $gte: new Date(startDate), $lte: new Date(endDate) };
     const stats = await DiscountUsage.aggregate([
       { $match: filter },
-      { $group: {
-        _id: '$discountId',
-        totalUsage: { $sum: 1 },
-        totalDiscount: { $sum: '$discountAmount' }
-      }},
-      { $lookup: {
-        from: 'discounts',
-        localField: '_id',
-        foreignField: '_id',
-        as: 'discount'
-      }},
+      { $group: { _id: '$discountId', totalUsage: { $sum: 1 }, totalDiscount: { $sum: '$discountAmount' } } },
+      { $lookup: { from: 'discounts', localField: '_id', foreignField: '_id', as: 'discount' } },
       { $unwind: '$discount' },
-      { $project: {
-        name: '$discount.name',
-        code: '$discount.code',
-        type: '$discount.type',
-        totalUsage: 1,
-        totalDiscount: 1
-      }}
+      { $project: { name: '$discount.name', code: '$discount.code', type: '$discount.type', totalUsage: 1, totalDiscount: 1 } }
     ]);
-    
     res.json(stats);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
+  } catch (error) { res.status(500).json({ error: error.message }); }
 };
 
 // Helper functions

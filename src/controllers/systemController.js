@@ -33,10 +33,7 @@ const getSystemHealth = async (req, res) => {
     const memUsage = process.memoryUsage();
     const cpuUsage = process.cpuUsage();
     
-    // Database health check
-    const dbStart = Date.now();
     const dbConnected = mongoose.connection.readyState === 1;
-    const dbResponseTime = Date.now() - dbStart;
     
     const avgResponseTime = responseTimes.length > 0 
       ? responseTimes.reduce((a, b) => a + b, 0) / responseTimes.length 
@@ -53,23 +50,18 @@ const getSystemHealth = async (req, res) => {
           heapUsed: memUsage.heapUsed,
           external: memUsage.external
         },
-        cpuUsage: (cpuUsage.user + cpuUsage.system) / 1000000 // Convert to seconds
+        cpuUsage: (cpuUsage.user + cpuUsage.system) / 1000000
       },
       databaseStatus: {
         connected: dbConnected,
-        responseTime: dbResponseTime,
         activeConnections: mongoose.connections.length
       },
       apiMetrics: {
         totalRequests: requestCount,
-        errorRate: errorRate,
+        errorRate,
         averageResponseTime: avgResponseTime
       }
     };
-    
-    // Save to database
-    const systemHealth = new SystemHealth(healthData);
-    await systemHealth.save();
     
     res.json(healthData);
   } catch (error) {

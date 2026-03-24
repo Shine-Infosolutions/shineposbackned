@@ -484,10 +484,8 @@ const getBonusRecords = async (req, res) => {
     }
 
     const bonuses = await BonusModel.find(query)
-      .populate('staffId', 'name role')
-      .populate('approvedBy', 'name')
-      .populate('createdBy', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
     const summary = {
       totalBonuses: bonuses.length,
@@ -638,8 +636,8 @@ const getHolidays = async (req, res) => {
     }
 
     const holidays = await HolidayModel.find(query)
-      .populate('createdBy', 'name')
-      .sort({ date: 1 });
+      .sort({ date: 1 })
+      .lean();
 
     const summary = {
       totalHolidays: holidays.length,

@@ -14,7 +14,7 @@ const getKitchenOrders = async (req, res) => {
       status: { $in: ['PENDING', 'PREPARING'] }
     }).sort({ createdAt: 1 });
     
-    const kots = await KOTModel.find()
+  const kots = await KOTModel.find({ status: { $in: ['PENDING', 'PREPARING'] } })
       .sort({ priority: -1, createdAt: -1 });
     
     res.json({ orders, kots });
@@ -165,10 +165,15 @@ const updateKOTStatus = async (req, res) => {
     await kot.save();
 
     if (kot.orderId) {
-      const order = await OrderModel.findById(kot.orderId);
-      if (order) {
-        order.status = status;
-        await order.save();
+      const kotToOrderStatus = {
+        'PREPARING': 'PREPARING',
+        'READY': 'READY',
+        'SERVED': 'SERVED',
+        'CANCELLED': 'CANCELLED'
+      };
+      const orderStatus = kotToOrderStatus[status];
+      if (orderStatus) {
+        await OrderModel.findByIdAndUpdate(kot.orderId, { status: orderStatus });
       }
     }
 

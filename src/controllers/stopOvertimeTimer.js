@@ -1,3 +1,5 @@
+const TenantModelFactory = require('../models/TenantModelFactory');
+
 const stopOvertimeTimer = async (req, res) => {
   try {
     const { requestId } = req.params;

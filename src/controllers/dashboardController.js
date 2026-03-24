@@ -35,25 +35,29 @@ const getDashboardStats = async (req, res) => {
       endDate.setHours(23, 59, 59, 999);
     }
 
-    // Fetch data
-    const [allOrders, filteredOrders, menuItems, staff, categories] = await Promise.all([
-      OrderModel.find().lean(),
+    // Fetch data — use countDocuments for live status counts (no full scan)
+    const [filteredOrders, menuItemCount, staff, categories,
+      pendingOrders, preparingOrders, completedOrders, paidOrders,
+      recentOrders] = await Promise.all([
       OrderModel.find({ createdAt: { $gte: startDate, $lte: endDate } }).lean(),
-      MenuModel.find().lean(),
+      MenuModel.countDocuments(),
       StaffModel.countDocuments({ isActive: true }),
-      CategoryModel.find().lean()
+      CategoryModel.find().select('_id name').lean(),
+      OrderModel.countDocuments({ status: { $in: ['PENDING', 'ORDER_ACCEPTED'] } }),
+      OrderModel.countDocuments({ status: { $in: ['PREPARING', 'READY', 'SERVED'] } }),
+      OrderModel.countDocuments({ status: 'DELIVERED' }),
+      OrderModel.countDocuments({ status: 'PAID' }),
+      OrderModel.find({ status: { $ne: 'PAID' } })
+        .sort({ createdAt: -1 }).limit(10)
+        .select('orderNumber customerName items totalAmount status createdAt').lean()
     ]);
 
     // Calculate stats
     const revenue = filteredOrders.reduce((sum, order) => sum + (order.totalAmount || 0), 0);
     const avgOrderValue = filteredOrders.length > 0 ? revenue / filteredOrders.length : 0;
-    const pendingOrders = allOrders.filter(o => o.status === 'PENDING' || o.status === 'ORDER_ACCEPTED').length;
-    const preparingOrders = allOrders.filter(o => o.status === 'PREPARING' || o.status === 'READY' || o.status === 'SERVED').length;
-    const completedOrders = allOrders.filter(o => o.status === 'DELIVERED').length;
-    const paidOrders = allOrders.filter(o => o.status === 'PAID').length;
 
     // Calculate payment statistics
-    const ordersWithPayment = filteredOrders.filter(o => o.paymentDetails && o.paymentDetails.method);
+    const ordersWithPayment = filteredOrders.filter(o => o.paymentDetails?.method);
     const cashPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'cash').reduce((sum, o) => sum + o.totalAmount, 0);
     const cardPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'card').reduce((sum, o) => sum + o.totalAmount, 0);
     const upiPayments = ordersWithPayment.filter(o => o.paymentDetails.method.toLowerCase() === 'upi').reduce((sum, o) => sum + o.totalAmount, 0);
@@ -69,36 +73,15 @@ const getDashboardStats = async (req, res) => {
       hourlyRevenue[hour] += order.totalAmount || 0;
     });
 
-    // Category breakdown
+    // Category breakdown — use category map from already-fetched categories
     const categoryMap = {};
-    categories.forEach(cat => {
-      categoryMap[cat._id.toString()] = cat.name;
-    });
+    categories.forEach(cat => { categoryMap[cat._id.toString()] = cat.name; });
 
     const categoryBreakdown = {};
     filteredOrders.forEach(order => {
       order.items?.forEach(item => {
-        // Try to find menu item by ID or name
-        let menuItem = menuItems.find(m => m._id.toString() === item.menuId?.toString());
-        
-        // If not found by ID, try by name
-        if (!menuItem && item.name) {
-          menuItem = menuItems.find(m => m.name === item.name);
-        }
-        
-        if (menuItem && menuItem.category) {
-          const catName = categoryMap[menuItem.category.toString()] || 'Other';
-          if (!categoryBreakdown[catName]) {
-            categoryBreakdown[catName] = 0;
-          }
-          categoryBreakdown[catName] += item.totalPrice || item.basePrice * item.quantity || 0;
-        } else {
-          // If no category found, add to "Other"
-          if (!categoryBreakdown['Other']) {
-            categoryBreakdown['Other'] = 0;
-          }
-          categoryBreakdown['Other'] += item.totalPrice || item.basePrice * item.quantity || 0;
-        }
+        const catName = (item.categoryId && categoryMap[item.categoryId.toString()]) || 'Other';
+        categoryBreakdown[catName] = (categoryBreakdown[catName] || 0) + (item.totalPrice || (item.basePrice || 0) * (item.quantity || 1));
       });
     });
 
@@ -108,21 +91,6 @@ const getDashboardStats = async (req, res) => {
       percentage: revenue > 0 ? Math.round((amount / revenue) * 100) : 0
     })).sort((a, b) => b.amount - a.amount);
 
-    // Recent orders (last 10, excluding PAID orders)
-    const recentOrders = allOrders
-      .filter(order => order.status !== 'PAID')
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-      .slice(0, 10)
-      .map(order => ({
-        _id: order._id,
-        orderNumber: order.orderNumber,
-        customerName: order.customerName,
-        items: order.items || [],
-        totalAmount: order.totalAmount,
-        status: order.status,
-        createdAt: order.createdAt
-      }));
-
     res.json({
       success: true,
       filter,
@@ -130,13 +98,13 @@ const getDashboardStats = async (req, res) => {
         orders: filteredOrders.length,
         revenue,
         avgOrderValue,
-        totalMenuItems: menuItems.length,
+        totalMenuItems: menuItemCount,
         activeStaff: staff,
         pendingOrders,
         preparingOrders,
         completedOrders,
         paidOrders,
-        customerSatisfaction: 4.8,
+
         cashPayments,
         cardPayments,
         upiPayments,

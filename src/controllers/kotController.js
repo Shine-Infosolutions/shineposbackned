@@ -40,10 +40,10 @@ const createKOT = async (req, res) => {
   }
 };
 
-// Get all KOTs
+// Get all KOTs — with pagination
 const getKOTs = async (req, res) => {
   try {
-    const { status, priority } = req.query;
+    const { status, priority, page = 1, limit = 50 } = req.query;
     const restaurantSlug = req.user.restaurantSlug;
     const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
     
@@ -51,11 +51,13 @@ const getKOTs = async (req, res) => {
     if (status) filter.status = status;
     if (priority) filter.priority = priority;
     
-    const kots = await KOTModel.find(filter)
-      .sort({ createdAt: -1 })
-      .populate('orderId');
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const [kots, total] = await Promise.all([
+      KOTModel.find(filter).sort({ createdAt: -1 }).skip(skip).limit(parseInt(limit)),
+      KOTModel.countDocuments(filter)
+    ]);
     
-    res.json({ kots });
+    res.json({ kots, total, page: parseInt(page), pages: Math.ceil(total / parseInt(limit)) });
   } catch (error) {
     console.error('Get KOTs error:', error);
     res.status(500).json({ error: 'Failed to fetch KOTs' });
@@ -80,7 +82,7 @@ const getKOTById = async (req, res) => {
     res.status(500).json({ error: 'Failed to fetch KOT' });
   }
 };
-// Update KOT status
+// Update KOT status — use findByIdAndUpdate to avoid extra fetch+save
 const updateKOTStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -93,30 +95,21 @@ const updateKOTStatus = async (req, res) => {
       return res.status(400).json({ error: 'Invalid KOT status' });
     }
     
-    const kot = await KOTModel.findById(id);
-    if (!kot) {
-      return res.status(404).json({ error: 'KOT not found' });
-    }
-    
-    kot.status = status;
-    const savedKOT = await kot.save();
+    const kot = await KOTModel.findByIdAndUpdate(id, { status }, { new: true });
+    if (!kot) return res.status(404).json({ error: 'KOT not found' });
 
-    // Update associated order status
-    try {
-      const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
-      const order = await OrderModel.findById(kot.orderId);
-      if (order) {
-        order.status = status;
-        await order.save();
+    // Sync order status only for terminal/meaningful transitions
+    const orderStatusMap = { PREPARING: 'PREPARING', READY: 'READY', SERVED: 'SERVED', CANCELLED: 'CANCELLED' };
+    if (orderStatusMap[status] && kot.orderId) {
+      try {
+        const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
+        await OrderModel.findByIdAndUpdate(kot.orderId, { status: orderStatusMap[status] });
+      } catch (orderError) {
+        console.error('Order status sync error:', orderError);
       }
-    } catch (orderError) {
-      console.error('Order status sync error:', orderError);
     }
     
-    res.json({
-      message: 'KOT status updated successfully',
-      kot: savedKOT
-    });
+    res.json({ message: 'KOT status updated successfully', kot });
   } catch (error) {
     console.error('Update KOT status error:', error);
     res.status(500).json({ error: 'Failed to update KOT status' });

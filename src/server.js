@@ -2,9 +2,12 @@ const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const compression = require('compression');
+const { v4: uuidv4 } = require('uuid');
+const mongoose = require('mongoose');
 
 const connectDB = require('./utils/database');
-// Auto-save middleware
 require('./middleware/autoSave');
 
 // Import routes
@@ -34,8 +37,6 @@ const tableRoutes = require('./routes/table');
 const uploadRoutes = require('./routes/upload');
 const dashboardRoutes = require('./routes/dashboard');
 const digitalMenuRoutes = require('./routes/digitalMenu');
-const zomatoSyncRoutes = require('./routes/zomatoSync');
-const dynoOrderRoutes = require('./routes/dynoOrder');
 const modulesRoutes = require('./routes/modules');
 const splitBillRoutes = require('./routes/splitBill');
 const crmRoutes = require('./routes/crm');
@@ -51,13 +52,32 @@ const app = express();
 // Connect to MongoDB
 connectDB();
 
-// Initialize default settings
-const { initializeDefaultSettings } = require('./controllers/settingsController');
-setTimeout(() => {
-  initializeDefaultSettings();
-}, 3000);
+// Rate limiting
+const rateLimit = require('express-rate-limit');
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
+  keyGenerator: (req) => req.user?.restaurantSlug || req.ip,
+  message: { error: 'Too many requests, please slow down.' },
+  standardHeaders: true,
+  legacyHeaders: false
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  keyGenerator: (req) => req.ip,
+  message: { error: 'Too many login attempts, try again later.' }
+});
+
+// Initialize default settings — only in primary/single process, not every cluster worker
+if (!process.env.CLUSTER_WORKER) {
+  const { initializeDefaultSettings } = require('./controllers/settingsController');
+  setTimeout(() => { initializeDefaultSettings(); }, 3000);
+}
 
 // Middleware
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(compression());
 app.use(cors({
   origin: [
     "http://localhost:5173",
@@ -67,11 +87,28 @@ app.use(cors({
     "https://shinepos.vercel.app",
   ]
 }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(trackApiMetrics); // Track API metrics for monitoring
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ limit: '1mb', extended: true }));
+// Upload routes need higher limit — applied per-route in upload.js
+
+// Request ID middleware
+app.use((req, res, next) => {
+  req.id = uuidv4();
+  res.setHeader('X-Request-Id', req.id);
+  next();
+});
+
+// Request timeout — 30s
+app.use((req, res, next) => {
+  res.setTimeout(30000, () => {
+    res.status(503).json({ error: 'Request timeout' });
+  });
+  next();
+});
+app.use(trackApiMetrics);
+app.use('/api/', apiLimiter);
 // Routes
-app.use('/api/auth', authRoutes);
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/restaurants', restaurantRoutes);
 app.use('/api/menus', menuRoutes);
 app.use('/api/inventory', inventoryRoutes);
@@ -92,10 +129,8 @@ app.use('/api/variation', variationRoutes);
 app.use('/api/activity', activityLogRoutes);
 app.use('/api/kot', kotRoutes);
 app.use('/api/table', tableRoutes);
-app.use('/api/upload', uploadRoutes);
+app.use('/api/upload', express.json({ limit: '50mb' }), express.urlencoded({ limit: '50mb', extended: true }), uploadRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/zomato', zomatoSyncRoutes);
-app.use('/api/dyno', dynoOrderRoutes);
 app.use('/api/modules', modulesRoutes);
 app.use('/api/split-bill', splitBillRoutes);
 app.use('/api', crmRoutes);
@@ -110,9 +145,13 @@ app.use('/api/:restaurantSlug/orders', orderRoutes);
 app.get('/', (req, res) => {
   res.json({ message: 'API is running' });
 })
-// Health check
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Restaurant SaaS API is running' });
+// Health check — deep
+app.get('/api/health', async (req, res) => {
+  const dbState = mongoose.connection.readyState; // 1 = connected
+  if (dbState !== 1) {
+    return res.status(503).json({ status: 'ERROR', db: 'disconnected' });
+  }
+  res.json({ status: 'OK', db: 'connected', pid: process.pid, uptime: Math.floor(process.uptime()) });
 });
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -130,7 +169,31 @@ app.use('*', (req, res) => {
 });
 
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`Worker ${process.pid} running on port ${PORT}`);
+});
+
+// Graceful shutdown
+const shutdown = async (signal) => {
+  console.log(`${signal} received, shutting down gracefully...`);
+  server.close(async () => {
+    try {
+      await mongoose.connection.close();
+      console.log('MongoDB connection closed');
+    } catch (e) { /* ignore */ }
+    process.exit(0);
+  });
+  // Force exit after 15s if graceful shutdown hangs
+  setTimeout(() => process.exit(1), 15000);
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception:', err);
+  shutdown('uncaughtException');
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
 });
 

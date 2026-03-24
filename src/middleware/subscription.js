@@ -6,14 +6,11 @@ const checkSubscriptionExpiry = (restaurant) => {
 
 const trackUsage = async (req, res, next) => {
   try {
-    if (!req.user || !req.user.restaurantSlug) {
-      return next(); 
-    }
+    if (!req.user || !req.user.restaurantSlug) return next();
 
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
-    if (!restaurant) {
-        return next();
-    }
+    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug })
+      .select('isActive subscriptionEndDate').lean();
+    if (!restaurant) return next();
 
     if (!restaurant.isActive) {
       return res.status(403).json({ error: 'Account is suspended. Please contact support.' });
@@ -26,7 +23,6 @@ const trackUsage = async (req, res, next) => {
       });
     }
 
-    req.restaurant = restaurant;
     next();
   } catch (error) {
     console.error('Usage tracking error:', error);

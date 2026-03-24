@@ -1,54 +1,45 @@
 const TenantModelFactory = require('../models/TenantModelFactory');
+const Customer = require('../models/Customer');
+const LoyaltySettings = require('../models/LoyaltySettings');
+const Campaign = require('../models/Campaign');
+const Review = require('../models/Review');
 
 // Sync customer data from orders
 const syncCustomersFromOrders = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     
-    const orders = await OrderModel.find({ customerPhone: { $exists: true, $ne: '' } });
+    const orders = await OrderModel.find({ customerPhone: { $exists: true, $ne: '' } }).select('customerPhone customerName totalAmount createdAt').lean();
     
     const customerMap = new Map();
-    
     for (const order of orders) {
       if (!order.customerPhone) continue;
-      
       const key = order.customerPhone;
       if (!customerMap.has(key)) {
-        customerMap.set(key, {
-          phone: order.customerPhone,
-          name: order.customerName || 'Guest',
-          totalOrders: 0,
-          totalSpent: 0,
-          lastOrderDate: order.createdAt
-        });
+        customerMap.set(key, { phone: key, name: order.customerName || 'Guest', totalOrders: 0, totalSpent: 0, lastOrderDate: order.createdAt });
       }
-      
-      const customer = customerMap.get(key);
-      customer.totalOrders++;
-      customer.totalSpent += order.totalAmount || 0;
-      if (order.createdAt > customer.lastOrderDate) {
-        customer.lastOrderDate = order.createdAt;
-        customer.name = order.customerName || customer.name;
-      }
+      const c = customerMap.get(key);
+      c.totalOrders++;
+      c.totalSpent += order.totalAmount || 0;
+      if (order.createdAt > c.lastOrderDate) { c.lastOrderDate = order.createdAt; c.name = order.customerName || c.name; }
     }
     
-    let created = 0, updated = 0;
-    
-    for (const [phone, data] of customerMap) {
-      const existing = await CustomerModel.findOne({ phone });
-      if (existing) {
-        existing.totalOrders = data.totalOrders;
-        existing.totalSpent = data.totalSpent;
-        existing.lastOrderDate = data.lastOrderDate;
-        existing.name = data.name;
-        await existing.save();
-        updated++;
-      } else {
-        await CustomerModel.create(data);
-        created++;
+    // Bulk upsert instead of N individual findOne+save
+    const bulkOps = Array.from(customerMap.values()).map(data => ({
+      updateOne: {
+        filter: { phone: data.phone },
+        update: { $set: data },
+        upsert: true
       }
+    }));
+    
+    let created = 0, updated = 0;
+    if (bulkOps.length > 0) {
+      const result = await CustomerModel.bulkWrite(bulkOps);
+      created = result.upsertedCount;
+      updated = result.modifiedCount;
     }
     
     res.json({ message: 'Customers synced successfully', created, updated, total: customerMap.size });
@@ -62,11 +53,9 @@ const syncCustomersFromOrders = async (req, res) => {
 const getCustomers = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     const { phone } = req.query;
     const query = phone ? { phone } : {};
-    
     const customers = await CustomerModel.find(query).sort({ createdAt: -1 });
     res.json(customers);
   } catch (error) {
@@ -79,8 +68,7 @@ const createCustomer = async (req, res) => {
   try {
     const { name, phone, email } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     const customer = new CustomerModel({ name, phone, email });
     await customer.save();
     res.status(201).json(customer);
@@ -95,15 +83,12 @@ const updateCustomer = async (req, res) => {
     const { id } = req.params;
     const { name, phone, email } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     const customer = await CustomerModel.findById(id);
     if (!customer) return res.status(404).json({ error: 'Customer not found' });
-    
     customer.name = name;
     customer.phone = phone;
     customer.email = email || '';
-    
     await customer.save();
     res.json(customer);
   } catch (error) {
@@ -116,8 +101,7 @@ const deleteCustomer = async (req, res) => {
   try {
     const { id } = req.params;
     const restaurantSlug = req.user.restaurantSlug;
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     await CustomerModel.findByIdAndDelete(id);
     res.json({ message: 'Customer deleted successfully' });
   } catch (error) {
@@ -131,7 +115,6 @@ const getCustomerOrders = async (req, res) => {
     const { customerId } = req.params;
     const restaurantSlug = req.user.restaurantSlug;
     const OrderModel = TenantModelFactory.getOrderModel(restaurantSlug);
-    
     const orders = await OrderModel.find({ customerId }).sort({ createdAt: -1 });
     res.json(orders);
   } catch (error) {
@@ -144,7 +127,7 @@ const getCustomerOrders = async (req, res) => {
 const getLoyaltyCustomers = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     const customers = await CustomerModel.find().sort({ loyaltyPoints: -1 });
     res.json(customers);
   } catch (error) {
@@ -156,8 +139,7 @@ const getLoyaltyCustomers = async (req, res) => {
 const getLoyaltySettings = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const LoyaltySettingsModel = TenantModelFactory.getModel(restaurantSlug, 'LoyaltySettings', require('../models/LoyaltySettings'));
-    
+    const LoyaltySettingsModel = TenantModelFactory.getModel(restaurantSlug, 'LoyaltySettings', LoyaltySettings);
     let settings = await LoyaltySettingsModel.findOne();
     if (!settings) {
       settings = new LoyaltySettingsModel({ pointsPerRupee: 1, redeemRate: 10 });
@@ -174,8 +156,7 @@ const updateLoyaltySettings = async (req, res) => {
   try {
     const { pointsPerRupee, redeemRate } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const LoyaltySettingsModel = TenantModelFactory.getModel(restaurantSlug, 'LoyaltySettings', require('../models/LoyaltySettings'));
-    
+    const LoyaltySettingsModel = TenantModelFactory.getModel(restaurantSlug, 'LoyaltySettings', LoyaltySettings);
     let settings = await LoyaltySettingsModel.findOne();
     if (!settings) {
       settings = new LoyaltySettingsModel({ pointsPerRupee, redeemRate });
@@ -195,7 +176,7 @@ const updateLoyaltySettings = async (req, res) => {
 const getCampaigns = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', require('../models/Campaign'));
+    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', Campaign);
     const campaigns = await CampaignModel.find().sort({ createdAt: -1 });
     res.json(campaigns);
   } catch (error) {
@@ -207,8 +188,7 @@ const getCampaigns = async (req, res) => {
 const createCampaign = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', require('../models/Campaign'));
-    
+    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', Campaign);
     const campaign = new CampaignModel(req.body);
     await campaign.save();
     res.status(201).json(campaign);
@@ -222,26 +202,22 @@ const sendCampaign = async (req, res) => {
   try {
     const { id } = req.params;
     const restaurantSlug = req.user.restaurantSlug;
-    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', require('../models/Campaign'));
-    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', require('../models/Customer'));
-    
+    const CampaignModel = TenantModelFactory.getModel(restaurantSlug, 'Campaign', Campaign);
+    const CustomerModel = TenantModelFactory.getModel(restaurantSlug, 'Customer', Customer);
     const campaign = await CampaignModel.findById(id);
     if (!campaign) return res.status(404).json({ error: 'Campaign not found' });
-    
     let targetCustomers = [];
     if (campaign.targetAudience === 'all') {
-      targetCustomers = await CustomerModel.find();
+      targetCustomers = await CustomerModel.find().select('_id').lean();
     } else if (campaign.targetAudience === 'vip') {
-      targetCustomers = await CustomerModel.find({ totalSpent: { $gte: campaign.minSpent } });
+      targetCustomers = await CustomerModel.find({ totalSpent: { $gte: campaign.minSpent } }).select('_id').lean();
     } else if (campaign.targetAudience === 'frequent') {
-      targetCustomers = await CustomerModel.find({ totalOrders: { $gte: campaign.minOrders } });
+      targetCustomers = await CustomerModel.find({ totalOrders: { $gte: campaign.minOrders } }).select('_id').lean();
     }
-    
     campaign.status = 'sent';
     campaign.sentCount = targetCustomers.length;
     campaign.sentAt = new Date();
     await campaign.save();
-    
     res.json({ message: 'Campaign sent successfully', sentCount: targetCustomers.length });
   } catch (error) {
     console.error('Send campaign error:', error);
@@ -253,7 +229,7 @@ const sendCampaign = async (req, res) => {
 const getReviews = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const ReviewModel = TenantModelFactory.getModel(restaurantSlug, 'Review', require('../models/Review'));
+    const ReviewModel = TenantModelFactory.getModel(restaurantSlug, 'Review', Review);
     const reviews = await ReviewModel.find().sort({ createdAt: -1 });
     res.json(reviews);
   } catch (error) {
@@ -267,8 +243,7 @@ const updateReviewStatus = async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const restaurantSlug = req.user.restaurantSlug;
-    const ReviewModel = TenantModelFactory.getModel(restaurantSlug, 'Review', require('../models/Review'));
-    
+    const ReviewModel = TenantModelFactory.getModel(restaurantSlug, 'Review', Review);
     const review = await ReviewModel.findByIdAndUpdate(id, { status }, { new: true });
     if (!review) return res.status(404).json({ error: 'Review not found' });
     res.json(review);

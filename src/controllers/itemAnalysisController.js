@@ -9,43 +9,35 @@ exports.getItemAnalysis = async (req, res) => {
     const Order = TenantModelFactory.getOrderModel(restaurantSlug);
     const Menu = TenantModelFactory.getMenuItemModel(restaurantSlug);
     
-    // Build date filter
     let dateFilter = {};
     if (dateRange && dateRange !== 'all') {
       const now = new Date();
       const filterDate = new Date();
-      
       switch(dateRange) {
-        case 'today':
-          filterDate.setHours(0, 0, 0, 0);
-          dateFilter = { createdAt: { $gte: filterDate } };
-          break;
-        case 'week':
-          filterDate.setDate(now.getDate() - 7);
-          dateFilter = { createdAt: { $gte: filterDate } };
-          break;
-        case 'month':
-          filterDate.setMonth(now.getMonth() - 1);
-          dateFilter = { createdAt: { $gte: filterDate } };
-          break;
+        case 'today': filterDate.setHours(0, 0, 0, 0); dateFilter = { createdAt: { $gte: filterDate } }; break;
+        case 'week': filterDate.setDate(now.getDate() - 7); dateFilter = { createdAt: { $gte: filterDate } }; break;
+        case 'month': filterDate.setMonth(now.getMonth() - 1); dateFilter = { createdAt: { $gte: filterDate } }; break;
         case 'custom':
-          if (startDate && endDate) {
-            dateFilter = {
-              createdAt: {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-              }
-            };
-          }
+          if (startDate && endDate) dateFilter = { createdAt: { $gte: new Date(startDate), $lte: new Date(endDate) } };
           break;
       }
     }
     
-    // Fetch orders with date filter
-    const orders = await Order.find(dateFilter);
+    // Use aggregation pipeline instead of loading all orders into memory
+    const [itemAggregation, menuItems] = await Promise.all([
+      Order.aggregate([
+        { $match: dateFilter },
+        { $project: { items: 1, extraItems: 1 } },
+        { $unwind: { path: '$items', preserveNullAndEmptyArrays: false } },
+        { $group: {
+          _id: '$items.name',
+          quantity: { $sum: '$items.quantity' },
+          revenue: { $sum: { $ifNull: ['$items.itemTotal', { $multiply: ['$items.quantity', { $ifNull: ['$items.price', '$items.basePrice'] }] }] } }
+        }}
+      ]),
+      Menu.find().select('itemName categoryID marginCostPercentage').populate('categoryID', 'name').lean()
+    ]);
     
-    // Fetch all menu items with category and margin
-    const menuItems = await Menu.find().populate('categoryID', 'name');
     const menuMap = {};
     menuItems.forEach(item => {
       menuMap[item.itemName] = {
@@ -54,69 +46,20 @@ exports.getItemAnalysis = async (req, res) => {
       };
     });
     
-    // Aggregate item data
-    const itemMap = {};
-    
-    orders.forEach(order => {
-      order.items?.forEach(item => {
-        const itemName = item.name;
-        const menuInfo = menuMap[itemName] || { category: 'Uncategorized', marginCost: 0.4 };
-        
-        if (!itemMap[itemName]) {
-          itemMap[itemName] = {
-            name: itemName,
-            category: menuInfo.category,
-            marginCostPercentage: Math.round(menuInfo.marginCost * 100),
-            quantity: 0,
-            revenue: 0,
-            cost: 0,
-            profit: 0,
-            margin: 0
-          };
-        }
-        
-        const itemTotal = item.itemTotal || (item.quantity * (item.price || item.basePrice || 0));
-        const itemCost = itemTotal * menuInfo.marginCost;
-        
-        itemMap[itemName].quantity += item.quantity;
-        itemMap[itemName].revenue += itemTotal;
-        itemMap[itemName].cost += itemCost;
-        itemMap[itemName].profit += (itemTotal - itemCost);
-      });
-      
-      // Include extra items
-      order.extraItems?.forEach(item => {
-        const itemName = item.name;
-        const menuInfo = menuMap[itemName] || { category: 'Extra Items', marginCost: 0.4 };
-        
-        if (!itemMap[itemName]) {
-          itemMap[itemName] = {
-            name: itemName,
-            category: menuInfo.category,
-            marginCostPercentage: Math.round(menuInfo.marginCost * 100),
-            quantity: 0,
-            revenue: 0,
-            cost: 0,
-            profit: 0,
-            margin: 0
-          };
-        }
-        
-        const itemTotal = item.total || (item.quantity * item.price);
-        const itemCost = itemTotal * menuInfo.marginCost;
-        
-        itemMap[itemName].quantity += item.quantity;
-        itemMap[itemName].revenue += itemTotal;
-        itemMap[itemName].cost += itemCost;
-        itemMap[itemName].profit += (itemTotal - itemCost);
-      });
+    const items = itemAggregation.map(item => {
+      const menuInfo = menuMap[item._id] || { category: 'Uncategorized', marginCost: 0.4 };
+      const cost = item.revenue * menuInfo.marginCost;
+      return {
+        name: item._id,
+        category: menuInfo.category,
+        marginCostPercentage: Math.round(menuInfo.marginCost * 100),
+        quantity: item.quantity,
+        revenue: item.revenue,
+        cost,
+        profit: item.revenue - cost,
+        margin: Math.round(menuInfo.marginCost * 100)
+      };
     });
-    
-    // Calculate margins and convert to array
-    const items = Object.values(itemMap).map(item => ({
-      ...item,
-      margin: item.marginCostPercentage
-    }));
     
     res.json({
       success: true,
@@ -125,13 +68,8 @@ exports.getItemAnalysis = async (req, res) => {
       totalRevenue: items.reduce((sum, item) => sum + item.revenue, 0),
       totalProfit: items.reduce((sum, item) => sum + item.profit, 0)
     });
-    
   } catch (error) {
     console.error('Item analysis error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch item analysis',
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch item analysis', error: error.message });
   }
 };

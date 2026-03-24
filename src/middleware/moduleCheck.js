@@ -1,8 +1,9 @@
 const ModuleConfig = require('../models/ModuleConfig');
 
-// Cache to reduce DB calls (5 min TTL)
+// Cache with size cap to prevent unbounded memory growth
 const moduleCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000;
+const CACHE_MAX_SIZE = 500;
 
 const getModuleConfig = async (restaurantId) => {
   const cacheKey = restaurantId.toString();
@@ -13,8 +14,6 @@ const getModuleConfig = async (restaurantId) => {
   }
 
   let config = await ModuleConfig.findOne({ restaurantId });
-  
-  // Auto-create with defaults for existing restaurants
   if (!config) {
     config = await ModuleConfig.create({
       restaurantId,
@@ -26,6 +25,10 @@ const getModuleConfig = async (restaurantId) => {
     });
   }
 
+  // Evict oldest entry if at capacity
+  if (moduleCache.size >= CACHE_MAX_SIZE) {
+    moduleCache.delete(moduleCache.keys().next().value);
+  }
   moduleCache.set(cacheKey, { config, timestamp: Date.now() });
   return config;
 };

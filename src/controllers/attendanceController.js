@@ -32,21 +32,10 @@ const checkIn = async (req, res) => {
       return res.status(400).json({ error: 'Cannot check in for future dates' });
     }
     
-    // Check for existing attendance today
+    // Check for existing attendance today (single query covers both checks)
     let attendance = await AttendanceModel.findOne({ staffId: id, date: today });
     if (attendance?.checkIn) {
       return res.status(400).json({ error: 'Already checked in today' });
-    }
-    
-    // Check for double shifts - prevent multiple check-ins same day
-    const existingAttendanceToday = await AttendanceModel.countDocuments({
-      staffId: id,
-      date: today,
-      checkIn: { $exists: true }
-    });
-    
-    if (existingAttendanceToday > 0) {
-      return res.status(400).json({ error: 'Multiple shifts same day not allowed' });
     }
     
     const scheduledShift = AttendanceUtils.getScheduledShift(staff, today);
@@ -294,25 +283,29 @@ const getTodayAttendance = async (req, res) => {
     const StaffModel = TenantModelFactory.getStaffModel(restaurantSlug);
     
     const today = AttendanceUtils.getCurrentDate();
-    const attendance = await AttendanceModel.find({ date: today })
-      .populate('staffId', 'name role shiftSchedule')
-      .sort({ checkIn: -1 });
-    
-    const allStaff = await StaffModel.find({ isActive: true }, 'name role');
-    const presentStaffIds = attendance.map(a => a.staffId._id.toString());
-    const absentStaff = allStaff.filter(staff => 
-      !presentStaffIds.includes(staff._id.toString())
-    );
-    
-    const onLeaveStaff = attendance.filter(a => a.status === 'on-leave');
-    
-    res.json({ 
-      present: attendance.filter(a => a.checkIn && a.status !== 'on-leave'),
+    const [attendance, allStaff] = await Promise.all([
+      AttendanceModel.find({ date: today }).sort({ checkIn: -1 }).lean(),
+      StaffModel.find({ isActive: true }).select('name role').lean()
+    ]);
+
+    // In-memory join — cross-connection populate silently returns null
+    const staffMap = new Map(allStaff.map(s => [s._id.toString(), s]));
+    const attendanceWithStaff = attendance.map(a => ({
+      ...a,
+      staffId: staffMap.get(a.staffId?.toString()) || a.staffId
+    }));
+
+    const presentStaffIds = new Set(attendance.map(a => a.staffId?.toString()));
+    const absentStaff = allStaff.filter(s => !presentStaffIds.has(s._id.toString()));
+    const onLeaveStaff = attendanceWithStaff.filter(a => a.status === 'on-leave');
+
+    res.json({
+      present: attendanceWithStaff.filter(a => a.checkIn && a.status !== 'on-leave'),
       absent: absentStaff,
       onLeave: onLeaveStaff,
       summary: {
         total: allStaff.length,
-        present: attendance.filter(a => a.checkIn && a.status !== 'on-leave').length,
+        present: attendanceWithStaff.filter(a => a.checkIn && a.status !== 'on-leave').length,
         absent: absentStaff.length,
         onLeave: onLeaveStaff.length,
         checkedOut: attendance.filter(a => a.checkOut).length

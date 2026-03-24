@@ -1,9 +1,36 @@
 const { validationResult } = require("express-validator");
 const TenantModelFactory = require("../models/TenantModelFactory");
 const Restaurant = require("../models/Restaurant");
+const ModuleConfig = require('../models/ModuleConfig');
+const Discount = require('../models/Discount');
+const DiscountUsage = require('../models/DiscountUsage');
+const Customer = require('../models/Customer');
+const LoyaltySettings = require('../models/LoyaltySettings');
 const kotPrinter = require("../utils/kotPrinter");
 const { prepareKOTData } = require("../utils/kotDataHelper");
 const { deductInventoryForItems } = require('./inventoryController');
+
+// Cache restaurant + moduleConfig lookups for 60s
+const restaurantCache = new Map();
+const moduleConfigCache = new Map();
+const CACHE_TTL = 60 * 1000;
+
+const getRestaurant = async (slug) => {
+  const cached = restaurantCache.get(slug);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+  const restaurant = await Restaurant.findOne({ slug }).lean();
+  if (restaurant) restaurantCache.set(slug, { data: restaurant, expiresAt: Date.now() + CACHE_TTL });
+  return restaurant;
+};
+
+const getModuleConfig = async (restaurantId) => {
+  const key = restaurantId.toString();
+  const cached = moduleConfigCache.get(key);
+  if (cached && Date.now() < cached.expiresAt) return cached.data;
+  const config = await ModuleConfig.findOne({ restaurantId }).lean();
+  moduleConfigCache.set(key, { data: config, expiresAt: Date.now() + CACHE_TTL });
+  return config;
+};
 
 /* =====================================================
    ADD ITEMS TO EXISTING ORDER
@@ -40,100 +67,50 @@ const addItemsToOrder = async (req, res) => {
       return res.status(404).json({ error: "KOT not found for this order" });
     }
 
+    // Batch fetch all menu items, variations, addons in 3 queries
+    const menuIds2 = [...new Set(items.map(i => i.menuId))];
+    const variationIds2 = [...new Set(items.flatMap(i => i.variation?.variationId ? [i.variation.variationId] : []))];
+    const addonIds2 = [...new Set(items.flatMap(i => (i.addons || []).map(a => a.addonId).filter(Boolean)))];
+
+    const [menuItemsArr2, variationsArr2, addonsArr2] = await Promise.all([
+      MenuModel.find({ _id: { $in: menuIds2 } }).lean(),
+      variationIds2.length ? VariationModel.find({ _id: { $in: variationIds2 } }).lean() : [],
+      addonIds2.length ? AddonModel.find({ _id: { $in: addonIds2 } }).lean() : []
+    ]);
+    const menuMap2 = Object.fromEntries(menuItemsArr2.map(m => [m._id.toString(), m]));
+    const variationMap2 = Object.fromEntries(variationsArr2.map(v => [v._id.toString(), v]));
+    const addonMap2 = Object.fromEntries(addonsArr2.map(a => [a._id.toString(), a]));
+
     let totalAmount = 0;
     const newOrderItems = [];
     const newKOTItems = [];
 
-    // Process new items
     for (const item of items) {
       const { menuId, quantity, variation, addons } = item;
+      if (!menuId || !quantity) return res.status(400).json({ error: 'Invalid item data' });
 
-      if (!menuId || !quantity) {
-        return res.status(400).json({ error: "Invalid item data" });
-      }
+      const menuItem = menuMap2[menuId?.toString()];
+      if (!menuItem) return res.status(400).json({ error: 'Menu item not available' });
 
-      const menuItem = await MenuModel.findById(menuId);
-      if (!menuItem || !menuItem.isAvailable) {
-        return res.status(400).json({ error: "Menu item not available" });
-      }
-
-      // Check if same item exists with "SERVED" status
-      const existingItemIndex = existingOrder.items.findIndex(existingItem => 
-        existingItem.menuId.toString() === menuId.toString() &&
-        JSON.stringify(existingItem.variation) === JSON.stringify(variation) &&
-        JSON.stringify(existingItem.addons) === JSON.stringify(addons) &&
-        existingItem.status === "SERVED"
-      );
-
-      // Price calculation
-      const basePrice = 0;
-      let finalVariation = null;
-      let variationPrice = 0;
-
-      if (variation && variation.variationId) {
-        const validVariation = await VariationModel.findById(variation.variationId);
-        if (validVariation) {
-          variationPrice = validVariation.price;
-          finalVariation = {
-            variationId: validVariation._id,
-            name: validVariation.name,
-            price: validVariation.price,
-          };
-        }
+      let finalVariation = null, variationPrice = 0;
+      if (variation?.variationId) {
+        const v = variationMap2[variation.variationId.toString()];
+        if (v) { variationPrice = v.price; finalVariation = { variationId: v._id, name: v.name, price: v.price }; }
       }
 
       let addonsTotal = 0;
       const finalAddons = [];
-
-      if (addons && addons.length) {
-        for (const addon of addons) {
-          if (addon.addonId) {
-            const validAddon = await AddonModel.findById(addon.addonId);
-            if (validAddon) {
-              addonsTotal += validAddon.price;
-              finalAddons.push({
-                addonId: validAddon._id,
-                name: validAddon.name,
-                price: validAddon.price,
-              });
-            }
-          }
+      for (const addon of (addons || [])) {
+        if (addon.addonId) {
+          const a = addonMap2[addon.addonId.toString()];
+          if (a) { addonsTotal += a.price; finalAddons.push({ addonId: a._id, name: a.name, price: a.price }); }
         }
       }
 
-      const itemTotal = (basePrice + variationPrice + addonsTotal) * quantity;
+      const itemTotal = (variationPrice + addonsTotal) * quantity;
       totalAmount += itemTotal;
-
-      if (existingItemIndex !== -1) {
-        // Same item with SERVED status exists - add as new line item with PENDING status
-      }
-
-      // Always add as new line item (requirement: add new line item)
-      const newItem = {
-        menuId: menuItem._id,
-        name: menuItem.itemName,
-        basePrice,
-        quantity,
-        variation: finalVariation,
-        addons: finalAddons,
-        itemTotal,
-        status: "PENDING",
-        timeToPrepare: menuItem.timeToPrepare || 15,
-        startedAt: null,
-        readyAt: null,
-        actualPrepTime: null
-      };
-
-      newOrderItems.push(newItem);
-      newKOTItems.push({
-        menuId: menuItem._id,
-        name: menuItem.itemName,
-        quantity,
-        variation: finalVariation,
-        addons: finalAddons,
-        status: "PENDING",
-        timeToPrepare: menuItem.timeToPrepare || 15
-      });
+      newOrderItems.push({ menuId: menuItem._id, name: menuItem.itemName, basePrice: 0, quantity, variation: finalVariation, addons: finalAddons, itemTotal, status: 'PENDING', timeToPrepare: menuItem.timeToPrepare || 15, startedAt: null, readyAt: null, actualPrepTime: null });
+      newKOTItems.push({ menuId: menuItem._id, name: menuItem.itemName, quantity, variation: finalVariation, addons: finalAddons, status: 'PENDING', timeToPrepare: menuItem.timeToPrepare || 15 });
     }
 
     // Add new items to existing order as extra items
@@ -194,110 +171,66 @@ const createOrder = async (req, res) => {
       return res.status(400).json({ error: "Items are required" });
     }
 
-    const restaurant = await Restaurant.findOne({ slug: restaurantSlug });
-    if (!restaurant) {
-      return res.status(404).json({ error: "Restaurant not found" });
-    }
+    const restaurant = await getRestaurant(restaurantSlug);
+    if (!restaurant) return res.status(404).json({ error: "Restaurant not found" });
+    if (!restaurant.isActive) return res.status(403).json({ error: "Restaurant is temporarily not accepting orders" });
 
-    if (!restaurant.isActive) {
-      return res.status(403).json({
-        error: "Restaurant is temporarily not accepting orders",
-      });
-    }
+    const MenuModel = req.tenantModels?.MenuItem || TenantModelFactory.getMenuItemModel(restaurantSlug);
+    const VariationModel = TenantModelFactory.getVariationModel(restaurantSlug);
+    const AddonModel = TenantModelFactory.getAddonModel(restaurantSlug);
 
-    const MenuModel =
-      req.tenantModels?.MenuItem ||
-      TenantModelFactory.getMenuItemModel(restaurantSlug);
+    // Batch fetch all menu items, variations, addons in 3 queries instead of N queries
+    const menuIds = [...new Set(items.map(i => i.menuId))];
+    const variationIds = [...new Set(items.flatMap(i => i.variation?.variationId ? [i.variation.variationId] : []))];
+    const addonIds = [...new Set(items.flatMap(i => (i.addons || []).map(a => a.addonId).filter(Boolean)))];
+
+    const [menuItemsArr, variationsArr, addonsArr] = await Promise.all([
+      MenuModel.find({ _id: { $in: menuIds } }).lean(),
+      variationIds.length ? VariationModel.find({ _id: { $in: variationIds } }).lean() : [],
+      addonIds.length ? AddonModel.find({ _id: { $in: addonIds } }).lean() : []
+    ]);
+
+    const menuMap = Object.fromEntries(menuItemsArr.map(m => [m._id.toString(), m]));
+    const variationMap = Object.fromEntries(variationsArr.map(v => [v._id.toString(), v]));
+    const addonMap = Object.fromEntries(addonsArr.map(a => [a._id.toString(), a]));
 
     let totalAmount = 0;
     const orderItems = [];
 
     for (const item of items) {
       const { menuId, quantity, variation, addons, timeToPrepare } = item;
+      if (!menuId || !quantity) return res.status(400).json({ error: "Invalid item data" });
 
-      if (!menuId || !quantity) {
-        return res.status(400).json({ error: "Invalid item data" });
-      }
+      const menuItem = menuMap[menuId?.toString()];
+      if (!menuItem || menuItem.status !== 'active') return res.status(400).json({ error: "Menu item not available" });
 
-      const menuItem = await MenuModel.findById(menuId);
-      if (!menuItem || !menuItem.isAvailable) {
-        return res
-          .status(400)
-          .json({ error: "Menu item not available" });
-      }
-
-      /* ===============================
-         PRICE CALCULATION (SAFE)
-      ================================ */
-      const basePrice = 0; // Menu items don't have base price, only variations do
-
-      // Get variation and addon details from TenantModelFactory
-      const VariationModel = TenantModelFactory.getVariationModel(restaurantSlug);
-      const AddonModel = TenantModelFactory.getAddonModel(restaurantSlug);
-
-      // Validate variation
       let finalVariation = null;
       let variationPrice = 0;
-
-      if (variation && variation.variationId) {
-        const validVariation = await VariationModel.findById(variation.variationId);
-
-        if (validVariation) {
-          variationPrice = validVariation.price;
-          finalVariation = {
-            variationId: validVariation._id,
-            name: validVariation.name,
-            price: validVariation.price,
-          };
-        }
+      if (variation?.variationId) {
+        const v = variationMap[variation.variationId.toString()];
+        if (v) { variationPrice = v.price; finalVariation = { variationId: v._id, name: v.name, price: v.price }; }
       }
 
-      // Validate addons
       let addonsTotal = 0;
       const finalAddons = [];
-
-      if (addons && addons.length) {
-        for (const addon of addons) {
-          if (addon.addonId) {
-            const validAddon = await AddonModel.findById(addon.addonId);
-
-            if (validAddon) {
-              addonsTotal += validAddon.price;
-              finalAddons.push({
-                addonId: validAddon._id,
-                name: validAddon.name,
-                price: validAddon.price,
-              });
-            }
-          }
+      for (const addon of (addons || [])) {
+        if (addon.addonId) {
+          const a = addonMap[addon.addonId.toString()];
+          if (a) { addonsTotal += a.price; finalAddons.push({ addonId: a._id, name: a.name, price: a.price }); }
         }
       }
 
-      const itemTotal =
-        (basePrice + variationPrice + addonsTotal) * quantity;
-
+      const itemTotal = (variationPrice + addonsTotal) * quantity;
       totalAmount += itemTotal;
-
       orderItems.push({
-        menuId: menuItem._id,
-        name: menuItem.itemName,
-        basePrice,
-        quantity,
-        variation: finalVariation,
-        addons: finalAddons,
-        itemTotal,
-        status: "PENDING",
-        timeToPrepare: timeToPrepare || menuItem.timeToPrepare || 15,
-        startedAt: null,
-        readyAt: null,
-        actualPrepTime: null
+        menuId: menuItem._id, name: menuItem.itemName, basePrice: 0,
+        quantity, variation: finalVariation, addons: finalAddons, itemTotal,
+        status: "PENDING", timeToPrepare: timeToPrepare || menuItem.timeToPrepare || 15,
+        startedAt: null, readyAt: null, actualPrepTime: null
       });
     }
 
-    const orderNumber = `ORD-${Date.now()}-${Math.random()
-      .toString(36)
-      .substring(2, 6)
-      .toUpperCase()}`;
+    const orderNumber = `ORD-${await TenantModelFactory.getNextSequence(restaurantSlug, 'order')}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
 
     const OrderModel =
       req.tenantModels?.Order ||
@@ -315,9 +248,7 @@ const createOrder = async (req, res) => {
       afterDiscount = subtotal - discountAmount;
     }
 
-    // Check if GST module is enabled
-    const ModuleConfig = require('../models/ModuleConfig');
-    const moduleConfig = await ModuleConfig.findOne({ restaurantId: restaurant._id });
+    const moduleConfig = await getModuleConfig(restaurant._id);
     const isGSTEnabled = moduleConfig?.modules?.gst?.enabled ?? true;
 
     // Calculate GST and SGST only if GST module is enabled
@@ -386,7 +317,9 @@ const createOrder = async (req, res) => {
     try {
       const KOTModel = TenantModelFactory.getKOTModel(restaurantSlug);
       
+      const kotSeq = await TenantModelFactory.getNextSequence(restaurantSlug, 'kot');
       const kot = new KOTModel({
+        kotNumber: `KOT${String(kotSeq).padStart(6, '0')}`,
         orderId: savedOrder._id,
         orderNumber: savedOrder.orderNumber,
         items: orderItems.map(item => ({
@@ -444,36 +377,27 @@ const createOrder = async (req, res) => {
 ===================================================== */
 const getOrders = async (req, res) => {
   try {
-    if (!req.user?.restaurantSlug) {
-      return res.status(400).json({ error: "Restaurant slug not found" });
+    if (!req.user?.restaurantSlug) return res.status(400).json({ error: "Restaurant slug not found" });
+    const OrderModel = req.tenantModels?.Order || TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const skip = (page - 1) * limit;
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.date) {
+      const d = new Date(req.query.date);
+      filter.createdAt = { $gte: d, $lt: new Date(d.getTime() + 86400000) };
     }
 
-    const OrderModel =
-      req.tenantModels?.Order ||
-      TenantModelFactory.getOrderModel(req.user.restaurantSlug);
+    const [orders, total] = await Promise.all([
+      OrderModel.find(filter)
+        .select('orderNumber items extraItems subtotal discount gst sgst totalAmount customerName customerPhone tableId tableNumber mergedTables status priority createdAt paymentDetails hasSplitBill splitBillId splitBillSummary')
+        .lean().sort({ createdAt: -1 }).skip(skip).limit(limit),
+      OrderModel.countDocuments(filter)
+    ]);
 
-    const orders = await OrderModel.find()
-      .select('orderNumber items extraItems subtotal discount gst sgst totalAmount customerName customerPhone tableId tableNumber mergedTables status priority createdAt paymentDetails hasSplitBill splitBillId splitBillSummary')
-      .lean()
-      .sort({ createdAt: -1 });
-
-    // Ensure items have status field from KOT
-    orders.forEach(order => {
-      if (order.items) {
-        order.items = order.items.map(item => ({
-          ...item,
-          status: item.status || 'PENDING'
-        }));
-      }
-      if (order.extraItems) {
-        order.extraItems = order.extraItems.map(item => ({
-          ...item,
-          status: item.status || 'PENDING'
-        }));
-      }
-    });
-
-    res.json({ orders });
+    res.json({ orders, total, page, pages: Math.ceil(total / limit) });
   } catch (error) {
     console.error("Get orders error:", error);
     res.status(500).json({ error: "Failed to fetch orders" });
@@ -561,29 +485,22 @@ const updateOrderStatus = async (req, res) => {
     
     const savedOrder = await order.save();
 
-    // Update table status when order is completed or cancelled
+    // Restore tables atomically — updateMany for original tables, delete merged
     if ((status === "CANCELLED" || status === "PAID") && order.tableId) {
-      const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
-      const table = await TableModel.findById(order.tableId);
-      if (table) {
-        // Check if it's a merged table
-        if (table.tableNumber && table.tableNumber.startsWith('MG_T')) {
-          // Delete merged table and restore original tables
-          const originalTableIds = table.mergedWith || [];
-          for (const tableId of originalTableIds) {
-            const originalTable = await TableModel.findById(tableId);
-            if (originalTable) {
-              originalTable.status = 'AVAILABLE';
-              await originalTable.save();
-            }
+      try {
+        const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
+        const table = await TableModel.findById(order.tableId);
+        if (table) {
+          if (table.tableNumber?.startsWith('MG_T') && table.mergedWith?.length > 0) {
+            await Promise.all([
+              TableModel.updateMany({ _id: { $in: table.mergedWith } }, { status: 'AVAILABLE' }),
+              TableModel.findByIdAndDelete(table._id)
+            ]);
+          } else {
+            await TableModel.findByIdAndUpdate(order.tableId, { status: 'AVAILABLE' });
           }
-          await TableModel.findByIdAndDelete(table._id);
-        } else {
-          // Regular table - just set to available
-          table.status = "AVAILABLE";
-          await table.save();
         }
-      }
+      } catch (tableError) { console.error('Table restore error:', tableError); }
     }
 
     // Update associated KOT status and items
@@ -649,46 +566,28 @@ const processPayment = async (req, res) => {
       return res.status(404).json({ error: "Order not found" });
     }
 
-    // Handle loyalty points redemption
-    if (loyaltyPointsUsed && loyaltyPointsUsed > 0 && order.customerPhone) {
-      const CustomerModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'Customer', require('../models/Customer'));
-      const customer = await CustomerModel.findOne({ phone: order.customerPhone });
-      
-      if (customer && customer.loyaltyPoints >= loyaltyPointsUsed) {
-        customer.loyaltyPoints -= loyaltyPointsUsed;
-        customer.redeemedPoints = (customer.redeemedPoints || 0) + loyaltyPointsUsed;
-        await customer.save();
-      }
-    }
-
-    // Credit loyalty points and update customer stats after payment
+    // Handle loyalty points and update customer stats in one operation
     if (order.customerPhone) {
       try {
-        const CustomerModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'Customer', require('../models/Customer'));
-        const LoyaltySettingsModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'LoyaltySettings', require('../models/LoyaltySettings'));
-        
-        let customer = await CustomerModel.findOne({ phone: order.customerPhone });
-        let loyaltySettings = await LoyaltySettingsModel.findOne();
-        
+        const CustomerModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'Customer', Customer);
+        const LoyaltySettingsModel = TenantModelFactory.getModel(req.user.restaurantSlug, 'LoyaltySettings', LoyaltySettings);
+        const [customer, loyaltySettings] = await Promise.all([
+          CustomerModel.findOne({ phone: order.customerPhone }),
+          LoyaltySettingsModel.findOne()
+        ]);
         if (customer) {
+          if (loyaltyPointsUsed && loyaltyPointsUsed > 0 && customer.loyaltyPoints >= loyaltyPointsUsed) {
+            customer.loyaltyPoints -= loyaltyPointsUsed;
+            customer.redeemedPoints = (customer.redeemedPoints || 0) + loyaltyPointsUsed;
+          }
           customer.totalOrders = (customer.totalOrders || 0) + 1;
           customer.totalSpent = (customer.totalSpent || 0) + amount;
           customer.lastOrderDate = new Date();
-          if (loyaltySettings) {
-            customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(amount * loyaltySettings.pointsPerRupee);
-          }
+          if (loyaltySettings) customer.loyaltyPoints = (customer.loyaltyPoints || 0) + Math.floor(amount * loyaltySettings.pointsPerRupee);
           await customer.save();
         } else {
-          const newCustomer = {
-            name: order.customerName || 'Guest',
-            phone: order.customerPhone,
-            totalOrders: 1,
-            totalSpent: amount,
-            lastOrderDate: new Date()
-          };
-          if (loyaltySettings) {
-            newCustomer.loyaltyPoints = Math.floor(amount * loyaltySettings.pointsPerRupee);
-          }
+          const newCustomer = { name: order.customerName || 'Guest', phone: order.customerPhone, totalOrders: 1, totalSpent: amount, lastOrderDate: new Date() };
+          if (loyaltySettings) newCustomer.loyaltyPoints = Math.floor(amount * loyaltySettings.pointsPerRupee);
           await CustomerModel.create(newCustomer);
         }
       } catch (crmError) {
@@ -707,29 +606,22 @@ const processPayment = async (req, res) => {
 
     await order.save();
 
-    // Update table status when payment is processed
+    // Restore tables atomically
     if (order.tableId) {
-      const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
-      const table = await TableModel.findById(order.tableId);
-      if (table) {
-        // Check if it's a merged table
-        if (table.tableNumber && table.tableNumber.startsWith('MG_T')) {
-          // Delete merged table and restore original tables
-          const originalTableIds = table.mergedWith || [];
-          for (const tableId of originalTableIds) {
-            const originalTable = await TableModel.findById(tableId);
-            if (originalTable) {
-              originalTable.status = 'AVAILABLE';
-              await originalTable.save();
-            }
+      try {
+        const TableModel = TenantModelFactory.getTableModel(req.user.restaurantSlug);
+        const table = await TableModel.findById(order.tableId);
+        if (table) {
+          if (table.tableNumber?.startsWith('MG_T') && table.mergedWith?.length > 0) {
+            await Promise.all([
+              TableModel.updateMany({ _id: { $in: table.mergedWith } }, { status: 'AVAILABLE' }),
+              TableModel.findByIdAndDelete(table._id)
+            ]);
+          } else {
+            await TableModel.findByIdAndUpdate(order.tableId, { status: 'AVAILABLE' });
           }
-          await TableModel.findByIdAndDelete(table._id);
-        } else {
-          // Regular table - set to available
-          table.status = 'AVAILABLE';
-          await table.save();
         }
-      }
+      } catch (tableError) { console.error('Table restore error:', tableError); }
     }
 
     res.json({
@@ -941,83 +833,50 @@ const addExtraItemsToOrder = async (req, res) => {
       return res.status(404).json({ error: "KOT not found for this order" });
     }
 
+    // Batch fetch all menu items, variations, addons in 3 queries
+    const menuIds = [...new Set(extraItems.map(i => i.menuId))];
+    const variationIds = [...new Set(extraItems.flatMap(i => i.variation?.variationId ? [i.variation.variationId] : []))];
+    const addonIds = [...new Set(extraItems.flatMap(i => (i.addons || []).map(a => a.addonId).filter(Boolean)))];
+
+    const [menuItemsArr, variationsArr, addonsArr] = await Promise.all([
+      MenuModel.find({ _id: { $in: menuIds } }).lean(),
+      variationIds.length ? VariationModel.find({ _id: { $in: variationIds } }).lean() : [],
+      addonIds.length ? AddonModel.find({ _id: { $in: addonIds } }).lean() : []
+    ]);
+    const menuMap = Object.fromEntries(menuItemsArr.map(m => [m._id.toString(), m]));
+    const variationMap = Object.fromEntries(variationsArr.map(v => [v._id.toString(), v]));
+    const addonMap = Object.fromEntries(addonsArr.map(a => [a._id.toString(), a]));
+
     let totalAmount = 0;
     const newExtraItems = [];
     const newKOTExtraItems = [];
 
     for (const item of extraItems) {
       const { menuId, quantity, variation, addons } = item;
+      if (!menuId || !quantity) return res.status(400).json({ error: 'Invalid extra item data' });
 
-      if (!menuId || !quantity) {
-        return res.status(400).json({ error: "Invalid extra item data" });
-      }
+      const menuItem = menuMap[menuId?.toString()];
+      if (!menuItem) return res.status(400).json({ error: 'Menu item not available' });
 
-      const menuItem = await MenuModel.findById(menuId);
-      if (!menuItem || !menuItem.isAvailable) {
-        return res.status(400).json({ error: "Menu item not available" });
-      }
-
-      const basePrice = 0;
-      let finalVariation = null;
-      let variationPrice = 0;
-
-      if (variation && variation.variationId) {
-        const validVariation = await VariationModel.findById(variation.variationId);
-        if (validVariation) {
-          variationPrice = validVariation.price;
-          finalVariation = {
-            variationId: validVariation._id,
-            name: validVariation.name,
-            price: validVariation.price,
-          };
-        }
+      let finalVariation = null, variationPrice = 0;
+      if (variation?.variationId) {
+        const v = variationMap[variation.variationId.toString()];
+        if (v) { variationPrice = v.price; finalVariation = { variationId: v._id, name: v.name, price: v.price }; }
       }
 
       let addonsTotal = 0;
       const finalAddons = [];
-
-      if (addons && addons.length) {
-        for (const addon of addons) {
-          if (addon.addonId) {
-            const validAddon = await AddonModel.findById(addon.addonId);
-            if (validAddon) {
-              addonsTotal += validAddon.price;
-              finalAddons.push({
-                addonId: validAddon._id,
-                name: validAddon.name,
-                price: validAddon.price,
-              });
-            }
-          }
+      for (const addon of (addons || [])) {
+        if (addon.addonId) {
+          const a = addonMap[addon.addonId.toString()];
+          if (a) { addonsTotal += a.price; finalAddons.push({ addonId: a._id, name: a.name, price: a.price }); }
         }
       }
 
-      const itemTotal = (basePrice + variationPrice + addonsTotal) * quantity;
+      const itemTotal = (variationPrice + addonsTotal) * quantity;
       totalAmount += itemTotal;
-
-      const newExtraItem = {
-        menuId: menuItem._id,
-        name: menuItem.itemName,
-        basePrice,
-        quantity,
-        variation: finalVariation,
-        addons: finalAddons,
-        itemTotal,
-        status: "PENDING",
-        startedAt: null,
-        readyAt: null,
-        actualPrepTime: null
-      };
-
-      newExtraItems.push(newExtraItem);
-      newKOTExtraItems.push({
-        menuId: menuItem._id,
-        name: menuItem.itemName,
-        quantity,
-        variation: finalVariation,
-        addons: finalAddons,
-        status: "PENDING"
-      });
+      newExtraItems.push({ menuId: menuItem._id, name: menuItem.itemName, basePrice: 0, quantity, variation: finalVariation, addons: finalAddons, itemTotal, status: 'PENDING', startedAt: null, readyAt: null, actualPrepTime: null });
+      newKOTExtraItems.push({ menuId: menuItem._id, name: menuItem.itemName, quantity, variation: finalVariation, addons: finalAddons, status: 'PENDING' });
     }
 
     order.extraItems.push(...newExtraItems);
@@ -1142,12 +1001,8 @@ const applyCoupon = async (req, res) => {
       return res.status(400).json({ error: "Cannot apply coupon to paid or cancelled orders" });
     }
 
-    // Validate coupon
-    const Discount = require('../models/Discount');
-    const DiscountUsage = require('../models/DiscountUsage');
-    const Restaurant = require('../models/Restaurant');
-    
-    const restaurant = await Restaurant.findOne({ slug: req.user.restaurantSlug });
+    const restaurant = await getRestaurant(req.user.restaurantSlug);
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
     
     const discount = await Discount.findOne({ 
       restaurantId: restaurant._id,

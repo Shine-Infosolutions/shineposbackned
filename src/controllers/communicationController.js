@@ -1,6 +1,5 @@
 const Communication = require('../models/Communication');
 const Restaurant = require('../models/Restaurant');
-const Billing = require('../models/Billing');
 
 const createMessage = async (req, res) => {
   try {
@@ -60,34 +59,27 @@ const getMessages = async (req, res) => {
 const getRestaurantMessages = async (req, res) => {
   try {
     const restaurantSlug = req.user.restaurantSlug;
-    const restaurant = await Restaurant.findOne({ slug: restaurantSlug });
+    const restaurant = await Restaurant.findOne({ slug: restaurantSlug }).select('_id').lean();
     
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
 
-    const billing = await Billing.findOne({ restaurantId: restaurant._id });
-    const isOnTrial = billing && billing.trialEnd && new Date(billing.trialEnd) > new Date();
-    
-    // Get messages based on recipient criteria
-    const query = {
+    const messages = await Communication.find({
       isActive: true,
       $or: [
         { recipients: 'ALL' },
-        { recipients: 'ACTIVE', $and: [billing && billing.status === 'ACTIVE'] },
-        { recipients: 'TRIAL', $and: [isOnTrial || billing?.plan === 'TRIAL'] },
         { recipients: 'SPECIFIC', specificRestaurants: restaurant._id }
       ]
-    };
-
-    const messages = await Communication.find(query)
+    })
       .populate('sentBy', 'name')
-      .sort({ sentAt: -1 });
+      .sort({ sentAt: -1 })
+      .lean();
     
-    // Add read status for this restaurant
+    const restaurantIdStr = restaurant._id.toString();
     const messagesWithReadStatus = messages.map(msg => ({
-      ...msg.toObject(),
-      isRead: msg.readBy.some(read => read.restaurantId.toString() === restaurant._id.toString())
+      ...msg,
+      isRead: msg.readBy?.some(read => read.restaurantId?.toString() === restaurantIdStr)
     }));
     
     res.json({ messages: messagesWithReadStatus });

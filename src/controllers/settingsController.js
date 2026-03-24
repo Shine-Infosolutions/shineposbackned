@@ -75,12 +75,11 @@ const initializeDefaultSettings = async () => {
     { key: 'PASSWORD_MIN_LENGTH', value: 6, category: 'SECURITY', description: 'Minimum password length' }
   ];
 
-  for (const setting of defaultSettings) {
-    const existing = await Settings.findOne({ key: setting.key });
-    if (!existing) {
-      await Settings.create(setting);
-    }
-  }
+  const existingKeys = new Set(
+    (await Settings.find({}, 'key').lean()).map(s => s.key)
+  );
+  const toInsert = defaultSettings.filter(s => !existingKeys.has(s.key));
+  if (toInsert.length > 0) await Settings.insertMany(toInsert);
 };
 
 module.exports = {

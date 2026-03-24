@@ -4,12 +4,11 @@ const TenantModelFactory = require('../models/TenantModelFactory');
 
 const getAllUsers = async (req, res) => {
   try {
-    const restaurants = await Restaurant.find();
+    const restaurants = await Restaurant.find().select('_id ownerName email restaurantName name slug isActive createdAt').lean();
     const allUsers = [];
 
-    for (const restaurant of restaurants) {
+    await Promise.all(restaurants.map(async (restaurant) => {
       try {
-        // Add restaurant admin from restaurant collection
         allUsers.push({
           _id: restaurant._id + '_admin',
           name: restaurant.ownerName,
@@ -22,35 +21,18 @@ const getAllUsers = async (req, res) => {
           createdAt: restaurant.createdAt
         });
 
-        // Fetch from users collection
-        const UserModel = TenantModelFactory.getUserModel(restaurant.slug);
-        const users = await UserModel.find().select('-password');
-        
-        users.forEach(user => {
-          allUsers.push({
-            ...user.toObject(),
-            restaurantName: restaurant.restaurantName || restaurant.name,
-            restaurantSlug: restaurant.slug,
-            restaurantId: restaurant._id
-          });
-        });
+        const [users, staff] = await Promise.all([
+          TenantModelFactory.getUserModel(restaurant.slug).find().select('-password').lean(),
+          TenantModelFactory.getStaffModel(restaurant.slug).find().select('-password').lean()
+        ]);
 
-        // Also fetch from staff collection
-        const StaffModel = TenantModelFactory.getStaffModel(restaurant.slug);
-        const staff = await StaffModel.find().select('-password');
-        
-        staff.forEach(staffMember => {
-          allUsers.push({
-            ...staffMember.toObject(),
-            restaurantName: restaurant.restaurantName || restaurant.name,
-            restaurantSlug: restaurant.slug,
-            restaurantId: restaurant._id
-          });
-        });
+        const meta = { restaurantName: restaurant.restaurantName || restaurant.name, restaurantSlug: restaurant.slug, restaurantId: restaurant._id };
+        users.forEach(u => allUsers.push({ ...u, ...meta }));
+        staff.forEach(s => allUsers.push({ ...s, ...meta }));
       } catch (error) {
         console.error(`Error fetching users for ${restaurant.slug}:`, error);
       }
-    }
+    }));
 
     res.json({ users: allUsers });
   } catch (error) {
@@ -86,10 +68,6 @@ const createUser = async (req, res) => {
     if (!restaurant) {
       return res.status(404).json({ error: 'Restaurant not found' });
     }
-
-    // Check if subscription is active (time-based)
-    const TimeBasedSubscriptionService = require('../services/TimeBasedSubscriptionService');
-    await TimeBasedSubscriptionService.checkSubscriptionStatus(restaurant.slug);
 
     // Check if user already exists
     const UserModel = TenantModelFactory.getUserModel(restaurant.slug);

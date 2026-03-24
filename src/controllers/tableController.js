@@ -262,17 +262,8 @@ const mergeTables = async (req, res) => {
         });
         const savedMergedTable = await mergedTable.save();
         
-        
-        // Update each original table individually by fetching and saving
-        
-        for (const tableId of tableIds) {
-            const table = await Table.findById(tableId);
-            if (table) {
-                table.status = 'OCCUPIED';
-                await table.save();
-                
-            }
-        }
+        // Update each original table with a single updateMany
+        await Table.updateMany({ _id: { $in: tableIds } }, { status: 'OCCUPIED' });
         
         res.json({ 
             message: 'Tables merged successfully',
@@ -387,7 +378,7 @@ const transferAndMerge = async (req, res) => {
         const newTables = await Table.find({ _id: { $in: newMergedWith } }).session(session);
         const newTotalCapacity = newTables.reduce((sum, t) => sum + t.capacity, 0);
         
-        const newMergedTableNumber = `MG_T${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
+        const newMergedTableNumber = `MG_T${String(mergeNumber + 1).padStart(2, '0')}`;
         
         const newMergedTable = new Table({
             tableNumber: newMergedTableNumber,

@@ -191,59 +191,45 @@ const getDigitalMenu = async (req, res) => {
     try {
         const MenuItem = req.tenantModels.MenuItem;
         const Category = req.tenantModels.Category;
-        const Restaurant = require('../models/Restaurant');
+        const RestaurantModel = require('../models/Restaurant');
         
-        const restaurant = await Restaurant.findOne({ slug: req.params.restaurantSlug, isActive: true });
-        if (!restaurant) {
-            return res.status(404).json({ error: 'Restaurant not found' });
-        }
+        const restaurant = await RestaurantModel.findOne({ slug: req.params.restaurantSlug, isActive: true }).lean();
+        if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
         
-        const categories = await Category.find().sort({ name: 1 });
-        const menuData = [];
-        
-        for (const category of categories) {
-            const items = await MenuItem.find({
-                categoryID: category._id
-            })
-            .populate('variation', 'name price')
-            .populate('addon', 'name price')
-            .lean();
-            
-            const formattedItems = items.map(item => ({
-                id: item._id,
-                name: item.itemName,
-                description: item.description || '',
-                image: item.imageUrl || '',
-                video: item.videoUrl || '',
-                foodType: item.foodType,
-                variations: item.variation?.map(v => ({
-                    id: v._id,
-                    name: v.name,
-                    price: v.price
-                })) || [],
-                addons: item.addon?.map(a => ({
-                    id: a._id,
-                    name: a.name,
-                    price: a.price
-                })) || [],
-                timeToPrepare: item.timeToPrepare || 15
-            }));
-            
-            if (formattedItems.length > 0) {
-                menuData.push({
-                    categoryId: category._id,
-                    categoryName: category.name,
-                    items: formattedItems
-                });
+        // Batch fetch categories and all active menu items in 2 queries
+        const [categories, allItems] = await Promise.all([
+            Category.find().sort({ name: 1 }).lean(),
+            MenuItem.find({ status: 'active' })
+                .populate('variation', 'name price')
+                .populate('addon', 'name price')
+                .lean()
+        ]);
+
+        // Group items by categoryID in memory
+        const itemsByCategory = {};
+        allItems.forEach(item => {
+            const catId = item.categoryID?.toString();
+            if (catId) {
+                if (!itemsByCategory[catId]) itemsByCategory[catId] = [];
+                itemsByCategory[catId].push(item);
             }
-        }
+        });
+
+        const menuData = categories
+            .map(category => {
+                const items = (itemsByCategory[category._id.toString()] || []).map(item => ({
+                    id: item._id, name: item.itemName, description: item.description || '',
+                    image: item.imageUrl || '', video: item.videoUrl || '', foodType: item.foodType,
+                    variations: item.variation?.map(v => ({ id: v._id, name: v.name, price: v.price })) || [],
+                    addons: item.addon?.map(a => ({ id: a._id, name: a.name, price: a.price })) || [],
+                    timeToPrepare: item.timeToPrepare || 15
+                }));
+                return items.length > 0 ? { categoryId: category._id, categoryName: category.name, items } : null;
+            })
+            .filter(Boolean);
         
         res.json({
-            restaurant: {
-                name: restaurant.name,
-                slug: restaurant.slug,
-                logo: restaurant.logo
-            },
+            restaurant: { name: restaurant.name, slug: restaurant.slug, logo: restaurant.logo },
             menu: menuData
         });
     } catch (error) {

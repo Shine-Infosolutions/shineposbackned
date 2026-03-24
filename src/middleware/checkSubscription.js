@@ -1,35 +1,45 @@
 const Restaurant = require('../models/Restaurant');
 
+// Cache subscription status per restaurantId for 60 seconds
+const cache = new Map();
+const CACHE_TTL = 60 * 1000;
+const CACHE_MAX_SIZE = 500;
+
 const checkSubscription = async (req, res, next) => {
   try {
-    // Only check for restaurant admin and staff roles
     const role = req.user?.role;
-    if (role === 'SUPER_ADMIN') {
-      return next(); // Super admin can always access
-    }
+    if (role === 'SUPER_ADMIN') return next();
 
-    // Get restaurant ID from token
     const restaurantId = req.user?.userId;
-    if (!restaurantId || role !== 'RESTAURANT_ADMIN') {
-      return next(); // No restaurant context or not restaurant admin, skip check
+    if (!restaurantId || role !== 'RESTAURANT_ADMIN') return next();
+
+    // Check cache first
+    const cached = cache.get(restaurantId);
+    if (cached && Date.now() < cached.expiresAt) {
+      if (!cached.valid) {
+        return res.status(403).json({ error: 'Subscription expired or inactive' });
+      }
+      return next();
     }
 
-    // Find restaurant by ID
-    const restaurant = await Restaurant.findById(restaurantId);
-    if (!restaurant) {
-      return res.status(404).json({ error: 'Restaurant not found' });
-    }
+    // Cache miss — hit DB
+    const restaurant = await Restaurant.findById(restaurantId).select('subscriptionEndDate paymentStatus').lean();
+    if (!restaurant) return res.status(404).json({ error: 'Restaurant not found' });
 
-    // Check subscription status
     const now = new Date();
-    const isExpired = restaurant.subscriptionEndDate && new Date(restaurant.subscriptionEndDate) < now;
-    const isCancelled = restaurant.paymentStatus === 'cancelled';
-    const isInactive = restaurant.paymentStatus !== 'paid';
+    const valid = !(
+      (restaurant.subscriptionEndDate && new Date(restaurant.subscriptionEndDate) < now) ||
+      restaurant.paymentStatus === 'cancelled' ||
+      restaurant.paymentStatus !== 'paid'
+    );
 
-    if (isExpired || isCancelled || isInactive) {
-      return res.status(403).json({ 
+    cache.set(restaurantId, { valid, expiresAt: Date.now() + CACHE_TTL });
+    if (cache.size > CACHE_MAX_SIZE) cache.delete(cache.keys().next().value);
+
+    if (!valid) {
+      return res.status(403).json({
         error: 'Subscription expired or inactive',
-        message: 'Your subscription has expired or been cancelled. Please renew to continue using the service.',
+        message: 'Your subscription has expired. Please renew to continue.',
         subscriptionStatus: restaurant.paymentStatus,
         subscriptionEndDate: restaurant.subscriptionEndDate
       });

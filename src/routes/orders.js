@@ -19,7 +19,6 @@ const {
 const { fixExtraItemsField } = require("../controllers/fixController");
 const auth = require("../middleware/auth");
 const checkSubscription = require("../middleware/checkSubscription");
-const TenantModelFactory = require("../models/TenantModelFactory");
 
 const router = express.Router();
 //CREATE ORDER (STAFF)
