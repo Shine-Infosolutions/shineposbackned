@@ -18,8 +18,14 @@ const auth = (requiredRoles = []) => {
 
       next();
     } catch (error) {
+      if (error.name === 'TokenExpiredError') {
+        return res.status(401).json({ error: 'Token expired.', code: 'TOKEN_EXPIRED' });
+      }
+      if (error.name === 'JsonWebTokenError') {
+        return res.status(401).json({ error: 'Invalid token.', code: 'INVALID_TOKEN' });
+      }
       console.error('Auth error:', error);
-      res.status(401).json({ error: 'Invalid token.' });
+      res.status(401).json({ error: 'Authentication failed.' });
     }
   };
 };
